@@ -1,4 +1,18 @@
 <?php
+declare(strict_types = 0);
+
+/**
+ * Controller for analist problem popup
+ */
+
+namespace Modules\StorageAnalytics\Actions;
+
+use CController;
+use CControllerResponseData;
+use API;
+use CArrayHelper;
+use CSeverityHelper;
+
 class CControllerStorageAnalytics extends CController {
     
     protected function init(): void {
