@@ -1,19 +1,15 @@
 {
-    "manifest_version": "2.0",
+    "manifest_version": 2.0,
+    "id": "storage-analytics",
     "name": "Storage Analytics",
-    "namespace": "StorageAnalytics",
-    "version": "1.0.0",
-    "vendor": "YourCompany",
-    "description": "Disk usage analytics with growth prediction and forecasting",
-    "url": "https://yourcompany.com",
-    "author": "Your Name",
+    "version": "1.0",
+    "namespace": "StorageAnalytics", // Must match module directory and PHP namespace
+    "url": "",
+    "description": "Analytical view of disk usage with growth predictions",
     "actions": {
-        "storage.analytics": [
-            "view"
-        ]
-    },
-    "requirements": {
-        "php_version": "7.4.0",
-        "zabbix_version": "6.0.0"
+        "storage.analytics": { // Must match setAction() in module.php
+            "class": "CControllerStorageAnalytics", // Your controller's class name
+            "view": "page.storage.analytics" // Your main view file
+        }
     }
 }
