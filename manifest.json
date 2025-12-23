@@ -3,13 +3,13 @@
     "id": "storage-analytics",
     "name": "Storage Analytics",
     "version": "1.0",
-    "namespace": "StorageAnalytics", // Must match module directory and PHP namespace
+    "namespace": "StorageAnalytics",
     "url": "",
     "description": "Analytical view of disk usage with growth predictions",
     "actions": {
-        "storage.analytics": { // Must match setAction() in module.php
-            "class": "CControllerStorageAnalytics", // Your controller's class name
-            "view": "page.storage.analytics" // Your main view file
+        "storage.analytics": {
+            "class": "CControllerStorageAnalytics",
+            "view": "page.storage.analytics"
         }
     }
 }
