@@ -1,4 +1,7 @@
 <?php
+
+namespace Modules\StorageAnalytics;
+
 class StorageAnalytics extends \Zabbix\Core\CModule {
     
     public function init(): void {
