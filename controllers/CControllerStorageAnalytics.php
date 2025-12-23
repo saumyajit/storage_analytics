@@ -393,4 +393,27 @@ class CControllerStorageAnalytics extends CController {
         
         return !empty($items) ? $items[0]['itemid'] : null;
     }
+
+    /**
+	* Helper function to build query string from filter
+	*/
+	private function buildQueryString(array $filter, array $exclude = []): string {
+		$params = [];
+		
+		foreach ($filter as $key => $value) {
+			if (in_array($key, $exclude)) {
+				continue;
+			}
+			
+			if (is_array($value)) {
+				foreach ($value as $val) {
+					$params[] = $key . '[]=' . urlencode($val);
+				}
+			} else {
+				$params[] = $key . '=' . urlencode($value);
+			}
+		}
+		
+		return $params ? '&' . implode('&', $params) : '';
+	}
 }
