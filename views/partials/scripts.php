@@ -245,20 +245,18 @@ class StorageAnalytics {
         }
     }
     
-    exportData(format = 'csv') {
-        // Get current filter values
-        const formData = new FormData(document.getElementById('filter-form'));
-        const params = new URLSearchParams(formData);
-        
-        // Add export parameters
-        params.set('action', 'storage.analytics');
-        params.set('export', format);
-        params.set('page', 'all');
-        
-        // Open in new window (server should handle export)
-        window.open(`zabbix.php?${params.toString()}`, '_blank');
-    }
-    
+	exportData(format = 'csv') {
+		// Get current filter values
+		const formData = new FormData(document.getElementById('filter-form'));
+		const params = new URLSearchParams(formData);
+		
+		// Add export parameters
+		params.set('export', format);
+		
+		// Open in new window
+		window.open(`zabbix.php?${params.toString()}`, '_blank');
+	}
+
     showHostDetails(hostId, hostName) {
         const modal = document.getElementById('host-details-modal');
         const title = document.getElementById('modal-title');
