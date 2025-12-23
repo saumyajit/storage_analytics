@@ -1,6 +1,5 @@
 <?php
-namespace Modules\StorageAnalytics; // [!code ++]
-// Important: Replace "StorageAnalytics" with the exact name of your module's directory.
+namespace Modules\diskanalyser;
 
 use Zabbix\Core\CModule;
 use APP;
@@ -8,13 +7,18 @@ use CMenuItem;
 
 class Module extends CModule {
     public function init(): void {
-        // Adds a menu item under "Monitoring". For "Reports", change as needed.
-        APP::Component()->get('menu.main')
-            ->findOrAdd(_('Monitoring')) // [!code ++] // Or (_('Reports'))
-                ->getSubmenu()
-                    // Insert your item at the desired position
-                    ->insertAfter(_('Screens'),
-                        (new CMenuItem(_('Storage Analytics')))->setAction('storage.analytics')
-                    );
+        $menu = APP::Component()->get('menu.main')
+            ->findOrAdd(_('Reports'))
+                ->getSubmenu();
+        
+        // Keep existing Disk Analyser
+        $menu->insertAfter(_('Notification'),
+            (new CMenuItem(_('Disk Analyser')))->setAction('disk.analyser')
+        );
+        
+        // Add new Storage Analytics menu item
+        $menu->insertAfter(_('Disk Analyser'),
+            (new CMenuItem(_('Storage Analytics')))->setAction('storage.analytics')
+        );
     }
 }
