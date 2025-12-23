@@ -370,25 +370,24 @@ class StorageAnalytics extends CController {
     /**
      * Determine status based on usage and days until full
      */
-    private function determineStatus(float $usagePct, string $daysUntilFull, float $warning, float $critical): string {
-        if ($usagePct >= $critical) {
-            return 'critical';
-        } elseif ($usagePct >= $warning) {
-            return 'warning';
-        }
-
-        // Check days until full
-        preg_match('/\d+/', $daysUntilFull, $matches);
-        $days = $matches[0] ?? PHP_INT_MAX;
-
-        if ($days <= 15) {
-            return 'critical';
-        } elseif ($days <= 30) {
-            return 'warning';
-        }
-
-        return 'ok';
-    }
+	private function determineStatus(float $usagePct, string $daysUntilFull, float $warning, float $critical): string {
+		if ($usagePct >= $critical) {
+			return 'critical';
+		} elseif ($usagePct >= $warning) {
+			return 'warning';
+		}
+	
+		// Check days until full - USE parseDaysToNumber()!
+		$days = $this->parseDaysToNumber($daysUntilFull);
+	
+		if ($days <= 15 && $days < PHP_INT_MAX) {
+			return 'critical';
+		} elseif ($days <= 30 && $days < PHP_INT_MAX) {
+			return 'warning';
+		}
+	
+		return 'ok';
+	}
 
     /**
      * Calculate enhanced summary statistics - FIXED VERSION
@@ -493,35 +492,50 @@ class StorageAnalytics extends CController {
     /**
      * Helper to parse days string to number - FIXED
      */
-    private function parseDaysToNumber(string $daysStr): int {
-        $days = PHP_INT_MAX;
-        
-        if ($daysStr === _('No growth') || $daysStr === _('Already full') || $daysStr === _('Growth error') || $daysStr === _('More than 10 years')) {
-            return PHP_INT_MAX;
-        }
-        
-        // Extract years
-        if (preg_match('/(\d+)\s*years?/', $daysStr, $matches)) {
-            $days = (int)$matches[1] * 365;
-        }
-        
-        // Extract months
-        if (preg_match('/(\d+)\s*months?/', $daysStr, $matches)) {
-            $days = isset($days) && $days < PHP_INT_MAX ? $days + ((int)$matches[1] * 30) : ((int)$matches[1] * 30);
-        }
-        
-        // Extract days
-        if (preg_match('/(\d+)\s*days?/', $daysStr, $matches)) {
-            $days = isset($days) && $days < PHP_INT_MAX ? $days + (int)$matches[1] : (int)$matches[1];
-        }
-        
-        // If it's just a plain number
-        if ($days === PHP_INT_MAX && is_numeric($daysStr)) {
-            $days = (int)$daysStr;
-        }
-        
-        return $days;
-    }
+	private function parseDaysToNumber(string $daysStr): int {
+		if ($daysStr === _('No growth') || $daysStr === _('Already full') || 
+			$daysStr === _('Growth error') || $daysStr === _('More than 10 years')) {
+			return PHP_INT_MAX;
+		}
+		
+		$days = PHP_INT_MAX;
+		$hasMatch = false;
+		
+		// Extract years
+		if (preg_match('/(\d+)\s*years?/', $daysStr, $matches)) {
+			$days = (int)$matches[1] * 365;
+			$hasMatch = true;
+		}
+		
+		// Extract months
+		if (preg_match('/(\d+)\s*months?/', $daysStr, $matches)) {
+			$months = (int)$matches[1] * 30;
+			if ($hasMatch) {
+				$days += $months;
+			} else {
+				$days = $months;
+				$hasMatch = true;
+			}
+		}
+		
+		// Extract days
+		if (preg_match('/(\d+)\s*days?/', $daysStr, $matches)) {
+			$dayCount = (int)$matches[1];
+			if ($hasMatch) {
+				$days += $dayCount;
+			} else {
+				$days = $dayCount;
+				$hasMatch = true;
+			}
+		}
+		
+		// If it's just a plain number (like "15")
+		if (!$hasMatch && is_numeric($daysStr)) {
+			$days = (int)$daysStr;
+		}
+		
+		return $days;
+	}
 
     /**
      * Get filter options for UI dropdowns
