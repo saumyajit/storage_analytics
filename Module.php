@@ -2,7 +2,9 @@
 
 namespace Modules\StorageAnalytics;
 
-class StorageAnalytics extends \Zabbix\Core\CModule {
+use Zabbix\Core\CModule;
+use APP;
+use CMenuItem;
     
     public function init(): void {
         // Register module routes
@@ -20,4 +22,3 @@ class StorageAnalytics extends \Zabbix\Core\CModule {
     public function onTerminate(): void {
         // Cleanup if needed
     }
-}
