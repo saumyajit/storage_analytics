@@ -381,9 +381,9 @@ class StorageAnalytics extends CController {
         preg_match('/\d+/', $daysUntilFull, $matches);
         $days = $matches[0] ?? PHP_INT_MAX;
 
-        if ($days <= 30) {
+        if ($days <= 15) {
             return 'critical';
-        } elseif ($days <= 90) {
+        } elseif ($days <= 30) {
             return 'warning';
         }
 
