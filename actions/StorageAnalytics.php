@@ -58,18 +58,19 @@ class StorageAnalytics extends CController {
             'filter_enabled'    => $this->getInput('filter_enabled', 0)
         ];
 
-        // Fetch storage data with filters
-        $storageData = $this->getFilteredStorageData($filter);
+        // Fetch storage data with filters - USING WORKING METHOD
+        $storageData = $this->getDiskDataWithFilters($filter);
         
-        // Calculate advanced predictions
-        $enhancedData = $this->calculateEnhancedPredictions($storageData, $filter);
+        // Calculate predictions
+        $enhancedData = $this->calculatePredictions($storageData, $filter);
         
         // Calculate summary statistics
-        $summary = $this->calculateEnhancedSummary($enhancedData, $filter);
+        $summary = $this->calculateSummary($enhancedData, $filter);
         
         // Get filter options for UI
         $filterOptions = $this->getFilterOptions($filter);
 
+        // Prepare response with proper structure for view
         $response = new CControllerResponseData([
             'storageData'     => $enhancedData,
             'summary'         => $summary,
@@ -89,139 +90,117 @@ class StorageAnalytics extends CController {
     }
 
     /**
-     * Fetch storage data with advanced filtering
+     * WORKING DATA COLLECTION METHOD (from your attached script)
      */
-    private function getFilteredStorageData(array $filter): array {
+    private function getDiskDataWithFilters(array $filter): array {
+        $diskData = [];
+        
+        // Build API parameters based on filters
         $apiParams = [
-            'output' => ['itemid', 'key_', 'name', 'lastvalue', 'hostid'],
-            'selectHosts' => ['hostid', 'name', 'host'],
-            'selectGroups' => ['groupid', 'name'],
-            'selectTags' => ['tag', 'value'],
             'search' => ['key_' => 'vfs.fs.size'],
+            'output' => ['itemid', 'key_', 'name', 'lastvalue', 'hostid'],
+            'selectHosts' => ['hostid', 'name'],
             'monitored' => true,
             'preservekeys' => true
         ];
-
-        // Apply host group filter
+        
+        // Apply group filter
         if (!empty($filter['groupids'])) {
             $apiParams['groupids'] = $filter['groupids'];
         }
-
+        
         // Apply host filter
         if (!empty($filter['hostids'])) {
             $apiParams['hostids'] = $filter['hostids'];
         }
-
-        // Apply host name filter (search)
+        
+        // Apply host search
         if (!empty($filter['host'])) {
             $apiParams['search']['host'] = $filter['host'];
         }
-
-        // Apply tag filter
-        if (!empty($filter['tags'])) {
-            $apiParams['tags'] = $filter['tags'];
-        }
-
+        
         $items = API::Item()->get($apiParams);
         
-        return $this->processItemsToStorageData($items);
-    }
-
-    /**
-     * Process API items into organized storage data
-     */
-    private function processItemsToStorageData(array $items): array {
-        $storageData = [];
         $groupedData = [];
-        $hostInfo = [];
-
+        $hostNames = [];
+        
         foreach ($items as $item) {
-            // Parse key to get mount point and type
-            if (!preg_match('/vfs\.fs\.size\[(.*?),(total|pused|used)\]/i', $item['key_'], $matches)) {
+            // Match mount point and item type ('total' or 'pused')
+            if (!preg_match('/vfs\.fs\.size\[(.*),(total|pused|used)\]/i', $item['key_'], $matches)) {
                 continue;
             }
 
             $hostId = $item['hostid'];
-            $mountPoint = trim($matches[1], '"\'') ?: '/';
-            $type = strtolower($matches[2]);
-            $key = $hostId . '|' . $mountPoint;
+            $hostNames[$hostId] = $item['hosts'][0]['name'];
+            
+            $mountPointKey = trim($matches[1], '"') ?: '/';
+            $type = strtolower($matches[2]); // 'total', 'pused', or 'used'
 
-            // Store host information
-            if (!isset($hostInfo[$hostId])) {
-                $hostInfo[$hostId] = [
-                    'hostid' => $hostId,
-                    'host' => $item['hosts'][0]['host'],
-                    'name' => $item['hosts'][0]['name'],
-                    'groups' => $item['groups'] ?? [],
-                    'tags' => $item['tags'] ?? []
-                ];
-            }
+            $key = $hostId . '|' . $mountPointKey;
 
-            // Initialize grouped data
             if (!isset($groupedData[$key])) {
                 $groupedData[$key] = [
                     'hostid' => $hostId,
-                    'mount' => $mountPoint,
+                    'mount' => $mountPointKey,
                     'total' => 0.0,
                     'pused' => 0.0,
                     'used' => 0.0
                 ];
             }
-
-            $value = (float)$item['lastvalue'];
             
-            switch ($type) {
-                case 'total':
-                    $groupedData[$key]['total'] = $value;
-                    break;
-                case 'pused':
-                    $groupedData[$key]['pused'] = $value;
-                    break;
-                case 'used':
-                    $groupedData[$key]['used'] = $value;
-                    break;
-            }
+            $groupedData[$key][$type] = (float) $item['lastvalue'];
         }
 
-        // Convert grouped data to final storage data
+        // Calculate metrics for the final array
         foreach ($groupedData as $key => $data) {
             $hostId = $data['hostid'];
+            $totalRaw = $data['total'];
+            $pused = $data['pused'];
+            $usedRaw = $data['used'];
             
-            // Skip if we don't have total data
-            if ($data['total'] <= 0) {
+            // Skip if we don't have data
+            if ($totalRaw <= 0 && $usedRaw <= 0) {
                 continue;
             }
-
-            // Calculate used bytes if we have percentage
-            if ($data['pused'] > 0 && $data['used'] == 0) {
-                $data['used'] = $data['total'] * ($data['pused'] / 100.0);
+            
+            // Calculate used bytes if we have percentage but not raw used
+            if ($usedRaw <= 0 && $pused > 0 && $totalRaw > 0) {
+                $usedRaw = $totalRaw * ($pused / 100.0);
             }
-
-            $usagePct = $data['total'] > 0 ? round(($data['used'] / $data['total']) * 100, 1) : 0;
-
-            $storageData[] = [
+            
+            // Calculate total if we have used and percentage
+            if ($totalRaw <= 0 && $usedRaw > 0 && $pused > 0) {
+                $totalRaw = $usedRaw / ($pused / 100.0);
+            }
+            
+            // Skip if still no valid data
+            if ($totalRaw <= 0 || $usedRaw <= 0) {
+                continue;
+            }
+            
+            $usagePct = round(($usedRaw / $totalRaw) * 100, 1);
+            
+            $diskData[] = [
                 'hostid' => $hostId,
-                'host' => $hostInfo[$hostId]['name'] ?? $hostInfo[$hostId]['host'],
-                'host_name' => $hostInfo[$hostId]['host'],
+                'host' => $hostNames[$hostId] ?? 'Unknown',
+                'host_name' => $hostNames[$hostId] ?? 'Unknown',
                 'mount' => $data['mount'],
-                'total_raw' => $data['total'],
-                'used_raw' => $data['used'],
-                'pused' => $data['pused'],
-                'total_space' => $this->formatBytes($data['total']),
-                'used_space' => $this->formatBytes($data['used']),
-                'usage_pct' => $usagePct,
-                'host_groups' => $hostInfo[$hostId]['groups'],
-                'host_tags' => $hostInfo[$hostId]['tags']
+                'total_raw' => $totalRaw,
+                'used_raw' => $usedRaw,
+                'pused' => $pused,
+                'total_space' => $this->formatBytes($totalRaw),
+                'used_space' => $this->formatBytes($usedRaw),
+                'usage_pct' => $usagePct
             ];
         }
 
-        return $storageData;
+        return $diskData;
     }
 
     /**
-     * Calculate enhanced predictions with seasonal analysis
+     * Calculate growth predictions
      */
-    private function calculateEnhancedPredictions(array $storageData, array $filter): array {
+    private function calculatePredictions(array $storageData, array $filter): array {
         $method = $filter['prediction_method'];
         $timeRange = $filter['time_range'];
 
@@ -234,14 +213,16 @@ class StorageAnalytics extends CController {
             );
 
             $item['daily_growth_raw'] = $growthData['daily_growth'];
-            $item['daily_growth'] = $this->formatBytes($growthData['daily_growth'] * 86400) . '/day';
+            $item['daily_growth'] = $growthData['daily_growth'] > 0 
+                ? $this->formatBytes($growthData['daily_growth']) . '/day' 
+                : _('Stable');
+                
             $item['days_until_full'] = $this->calculateDaysUntilFull(
                 $item['total_raw'],
                 $item['used_raw'],
                 $growthData['daily_growth']
             );
             $item['growth_trend'] = $growthData['trend'];
-            $item['seasonal_pattern'] = $growthData['pattern'];
             $item['confidence'] = $growthData['confidence'];
 
             // Determine status based on thresholds
@@ -257,7 +238,7 @@ class StorageAnalytics extends CController {
     }
 
     /**
-     * Advanced growth rate calculation with seasonal adjustment
+     * Calculate growth rate
      */
     private function calculateGrowthRate(int $hostId, string $mount, int $days, string $method): array {
         $itemKey = 'vfs.fs.size[' . $mount . ',used]';
@@ -274,7 +255,6 @@ class StorageAnalytics extends CController {
             return [
                 'daily_growth' => 0,
                 'trend' => 'stable',
-                'pattern' => [],
                 'confidence' => 0
             ];
         }
@@ -289,29 +269,19 @@ class StorageAnalytics extends CController {
             'history' => 3,
             'time_from' => $timeFrom,
             'sortfield' => 'clock',
-            'sortorder' => 'ASC'
+            'sortorder' => 'ASC',
+            'limit' => 30 // Limit to reasonable amount
         ]);
 
         if (count($history) < 2) {
             return [
                 'daily_growth' => 0,
                 'trend' => 'insufficient_data',
-                'pattern' => [],
                 'confidence' => 0
             ];
         }
 
-        if ($method === 'simple') {
-            return $this->calculateSimpleGrowth($history, $days);
-        } else {
-            return $this->calculateSeasonalGrowth($history, $days);
-        }
-    }
-
-    /**
-     * Simple linear growth calculation
-     */
-    private function calculateSimpleGrowth(array $history, int $days): array {
+        // Simple growth calculation (working method)
         $first = reset($history);
         $last = end($history);
 
@@ -319,100 +289,19 @@ class StorageAnalytics extends CController {
         $timeDiff = max(1, ($last['clock'] - $first['clock']) / 86400);
         
         $dailyGrowth = $valueDiff / $timeDiff;
+        
+        // Cap unrealistic growth
+        if (abs($dailyGrowth) > 10737418240) { // > 10GB/day
+            $dailyGrowth = 0;
+        }
 
-        // Calculate confidence based on data points
         $confidence = min(100, (count($history) / $days) * 100);
 
         return [
             'daily_growth' => $dailyGrowth,
             'trend' => $this->determineTrend($dailyGrowth),
-            'pattern' => [],
             'confidence' => round($confidence)
         ];
-    }
-
-    /**
-     * Seasonal growth calculation with pattern detection
-     */
-    private function calculateSeasonalGrowth(array $history, int $days): array {
-        if (count($history) < 7) {
-            return $this->calculateSimpleGrowth($history, $days);
-        }
-
-        // Group by day of week for weekly patterns
-        $weeklyPattern = [];
-        foreach ($history as $point) {
-            $dayOfWeek = date('N', $point['clock']);
-            $weekNumber = date('W', $point['clock']);
-            
-            if (!isset($weeklyPattern[$weekNumber])) {
-                $weeklyPattern[$weekNumber] = [];
-            }
-            $weeklyPattern[$weekNumber][$dayOfWeek] = $point['value'];
-        }
-
-        // Calculate growth adjusted for weekly patterns
-        $adjustedGrowths = [];
-        $pattern = [];
-
-        for ($i = 1; $i < count($history); $i++) {
-            $current = $history[$i];
-            $previous = $history[$i - 1];
-
-            $timeDiff = ($current['clock'] - $previous['clock']) / 86400;
-            
-            if ($timeDiff > 0) {
-                $rawGrowth = ($current['value'] - $previous['value']) / $timeDiff;
-                
-                // Adjust for day of week pattern if we have data
-                $currentDay = date('N', $current['clock']);
-                $previousDay = date('N', $previous['clock']);
-                
-                $adjustedGrowths[] = $rawGrowth;
-            }
-        }
-
-        $dailyGrowth = !empty($adjustedGrowths) ? array_sum($adjustedGrowths) / count($adjustedGrowths) : 0;
-
-        // Extract weekly pattern for display
-        if (count($weeklyPattern) >= 2) {
-            $pattern = $this->extractWeeklyPattern($weeklyPattern);
-        }
-
-        return [
-            'daily_growth' => $dailyGrowth,
-            'trend' => $this->determineTrend($dailyGrowth),
-            'pattern' => $pattern,
-            'confidence' => min(100, (count($history) / max($days, 1)) * 80)
-        ];
-    }
-
-    /**
-     * Extract weekly growth pattern
-     */
-    private function extractWeeklyPattern(array $weeklyData): array {
-        $pattern = [];
-        $dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-        for ($day = 1; $day <= 7; $day++) {
-            $dayValues = [];
-            
-            foreach ($weeklyData as $weekData) {
-                if (isset($weekData[$day])) {
-                    $dayValues[] = $weekData[$day];
-                }
-            }
-
-            if (!empty($dayValues)) {
-                $pattern[] = [
-                    'day' => $dayNames[$day - 1],
-                    'avg' => array_sum($dayValues) / count($dayValues),
-                    'samples' => count($dayValues)
-                ];
-            }
-        }
-
-        return $pattern;
     }
 
     /**
@@ -447,13 +336,33 @@ class StorageAnalytics extends CController {
         }
 
         $days = floor($freeSpace / $dailyGrowth);
+        
+        // Handle unrealistic calculations
+        if ($days > 365 * 10) { // More than 10 years
+            return _('More than 10 years');
+        }
 
         if ($days > 365) {
-            return floor($days / 365) . ' years ' . floor(($days % 365) / 30) . ' months';
+            $years = floor($days / 365);
+            $remainingDays = $days % 365;
+            $months = floor($remainingDays / 30);
+            
+            if ($months > 0) {
+                return sprintf(_('%d years %d months'), $years, $months);
+            } else {
+                return sprintf(_('%d years'), $years);
+            }
         } elseif ($days > 30) {
-            return floor($days / 30) . ' months ' . ($days % 30) . ' days';
+            $months = floor($days / 30);
+            $remainingDays = $days % 30;
+            
+            if ($remainingDays > 0) {
+                return sprintf(_('%d months %d days'), $months, $remainingDays);
+            } else {
+                return sprintf(_('%d months'), $months);
+            }
         } else {
-            return $days . ' days';
+            return sprintf(_('%d days'), $days);
         }
     }
 
@@ -481,9 +390,9 @@ class StorageAnalytics extends CController {
     }
 
     /**
-     * Calculate enhanced summary statistics
+     * Calculate summary statistics
      */
-    private function calculateEnhancedSummary(array $storageData, array $filter): array {
+    private function calculateSummary(array $storageData, array $filter): array {
         $summary = [
             'total_capacity_raw' => 0,
             'total_used_raw' => 0,
@@ -503,7 +412,7 @@ class StorageAnalytics extends CController {
             $summary['total_capacity_raw'] += $item['total_raw'];
             $summary['total_used_raw'] += $item['used_raw'];
             
-            if ($item['daily_growth_raw'] > 0) {
+            if (isset($item['daily_growth_raw']) && $item['daily_growth_raw'] > 0) {
                 $summary['total_growth_raw'] += $item['daily_growth_raw'];
                 $growthData[] = $item;
             }
@@ -517,11 +426,11 @@ class StorageAnalytics extends CController {
             $hosts[$item['hostid']] = true;
 
             // Track earliest full
-            if ($item['daily_growth_raw'] > 0) {
+            if (isset($item['daily_growth_raw']) && $item['daily_growth_raw'] > 0) {
                 preg_match('/\d+/', $item['days_until_full'], $matches);
                 $days = $matches[0] ?? PHP_INT_MAX;
                 
-                if ($summary['earliest_full'] === null || $days < $summary['earliest_full']['days']) {
+                if ($days > 0 && ($summary['earliest_full'] === null || $days < $summary['earliest_full']['days'])) {
                     $summary['earliest_full'] = [
                         'host' => $item['host'],
                         'mount' => $item['mount'],
@@ -539,6 +448,7 @@ class StorageAnalytics extends CController {
             ? round(($summary['total_used_raw'] / $summary['total_capacity_raw']) * 100, 1)
             : 0;
 
+        // Calculate average growth (only from filesystems with growth)
         $summary['avg_daily_growth'] = !empty($growthData)
             ? $summary['total_growth_raw'] / count($growthData)
             : 0;
@@ -546,11 +456,13 @@ class StorageAnalytics extends CController {
         // Format for display
         $summary['total_capacity'] = $this->formatBytes($summary['total_capacity_raw']);
         $summary['total_used'] = $this->formatBytes($summary['total_used_raw']);
-        $summary['avg_daily_growth_fmt'] = $this->formatBytes($summary['avg_daily_growth'] * 86400) . '/day';
+        $summary['avg_daily_growth_fmt'] = $summary['avg_daily_growth'] > 0 
+            ? $this->formatBytes($summary['avg_daily_growth'] * 86400) . '/day'
+            : '0 B/day';
 
         // Get top 5 fastest growing filesystems
         usort($growthData, function($a, $b) {
-            return $b['daily_growth_raw'] <=> $a['daily_growth_raw'];
+            return ($b['daily_growth_raw'] ?? 0) <=> ($a['daily_growth_raw'] ?? 0);
         });
         
         $summary['top_growers'] = array_slice($growthData, 0, 5);
