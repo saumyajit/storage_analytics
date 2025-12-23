@@ -77,6 +77,7 @@
                 'total_raw' => 0,
                 'used_raw' => 0,
                 'usage_pct' => 0,
+                'growth_filesystems' => [], // Track filesystems with growth
                 'daily_growth_raw' => 0,
                 'days_until_full' => null,
                 'filesystems' => [],
@@ -87,9 +88,17 @@
         
         $hostsData[$hostId]['total_raw'] += $item['total_raw'];
         $hostsData[$hostId]['used_raw'] += $item['used_raw'];
-        $hostsData[$hostId]['daily_growth_raw'] += $item['daily_growth_raw'];
         $hostsData[$hostId]['filesystems'][] = $item;
         $hostsData[$hostId]['fs_count']++;
+        
+        // Track filesystems with growth for host-level calculation
+        if (isset($item['daily_growth_raw']) && $item['daily_growth_raw'] > 0) {
+            $hostsData[$hostId]['growth_filesystems'][] = [
+                'growth' => $item['daily_growth_raw'],
+                'days_until_full' => $item['days_until_full']
+            ];
+            $hostsData[$hostId]['daily_growth_raw'] += $item['daily_growth_raw'];
+        }
         
         // Calculate filesystem status based on BOTH usage % AND days until full
         $fsStatus = 'ok';
@@ -129,13 +138,48 @@
             $hostData['usage_pct'] = round(($hostData['used_raw'] / $hostData['total_raw']) * 100, 1);
         }
         
+        // Calculate REALISTIC host growth (median of growth filesystems to avoid outliers)
+        $hostData['growth_rate'] = '0';
+        $hostData['growth_rate_display'] = _('Stable');
+        $hostData['growth_class'] = 'neutral';
+        
+        if (!empty($hostData['growth_filesystems'])) {
+            // Calculate median growth (to avoid outliers)
+            $growthValues = array_column($hostData['growth_filesystems'], 'growth');
+            sort($growthValues);
+            $count = count($growthValues);
+            $middle = floor(($count - 1) / 2);
+            
+            if ($count % 2) {
+                $medianGrowth = $growthValues[$middle];
+            } else {
+                $medianGrowth = ($growthValues[$middle] + $growthValues[$middle + 1]) / 2;
+            }
+            
+            // Cap unrealistic growth (> 10GB/day)
+            if ($medianGrowth > 10737418240) { // 10 GB
+                $medianGrowth = 0;
+            }
+            
+            if ($medianGrowth > 0) {
+                $hostData['growth_rate'] = $medianGrowth;
+                $hostData['growth_rate_display'] = '+' . $formatBytes($medianGrowth) . '/day';
+                $hostData['growth_class'] = 'positive';
+            }
+        }
+        
         // Calculate earliest days until full among filesystems (for display)
         $earliestDays = null;
+        $validFilesystems = [];
+        
         foreach ($hostData['filesystems'] as $fs) {
             if (isset($fs['daily_growth_raw']) && $fs['daily_growth_raw'] > 0) {
                 $days = parseDaysFromString($fs['days_until_full'] ?? _('No growth'));
-                if ($days < PHP_INT_MAX && ($earliestDays === null || $days < $earliestDays)) {
-                    $earliestDays = $days;
+                if ($days < PHP_INT_MAX) {
+                    $validFilesystems[] = $days;
+                    if ($earliestDays === null || $days < $earliestDays) {
+                        $earliestDays = $days;
+                    }
                 }
             }
         }
@@ -246,13 +290,10 @@
                         </div>
                     </td>
                     <td>
-                        <?php if ($host['daily_growth_raw'] > 0): ?>
-                            <span class="growth-value positive">
-                                +<?= $formatBytes($host['daily_growth_raw'] * 86400) ?>/day
-                            </span>
-                        <?php else: ?>
-                            <span class="growth-value neutral"><?= _('Stable') ?></span>
-                        <?php endif; ?>
+                        <!-- FIXED GROWTH RATE DISPLAY -->
+                        <span class="growth-value <?= $host['growth_class'] ?>">
+                            <?= $host['growth_rate_display'] ?>
+                        </span>
                     </td>
                     <td>
                         <span class="days-cell <?= $host['days_status'] ?>">
