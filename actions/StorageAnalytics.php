@@ -12,7 +12,6 @@ class StorageAnalytics extends CController {
     }
 
     protected function checkInput(): bool {
-        // Define all possible filter inputs
         $fields = [
             'hostids'           => 'array_id',
             'groupids'          => 'array_id',
@@ -58,19 +57,18 @@ class StorageAnalytics extends CController {
             'filter_enabled'    => $this->getInput('filter_enabled', 0)
         ];
 
-        // Fetch storage data with filters - USING WORKING METHOD
+        // Fetch storage data with filters
         $storageData = $this->getDiskDataWithFilters($filter);
         
         // Calculate predictions
         $enhancedData = $this->calculatePredictions($storageData, $filter);
         
-        // Calculate summary statistics
-        $summary = $this->calculateSummary($enhancedData, $filter);
+        // Calculate summary statistics - WITH FIXED GROWTH CALCULATION
+        $summary = $this->calculateEnhancedSummary($enhancedData, $filter);
         
         // Get filter options for UI
         $filterOptions = $this->getFilterOptions($filter);
 
-        // Prepare response with proper structure for view
         $response = new CControllerResponseData([
             'storageData'     => $enhancedData,
             'summary'         => $summary,
@@ -90,7 +88,7 @@ class StorageAnalytics extends CController {
     }
 
     /**
-     * WORKING DATA COLLECTION METHOD (from your attached script)
+     * WORKING DATA COLLECTION METHOD
      */
     private function getDiskDataWithFilters(array $filter): array {
         $diskData = [];
@@ -322,7 +320,7 @@ class StorageAnalytics extends CController {
     }
 
     /**
-     * Calculate days until full with growth rate
+     * Calculate days until full with growth rate - SINGLE VERSION
      */
     private function calculateDaysUntilFull(float $total, float $used, float $dailyGrowth): string {
         if ($dailyGrowth <= 0) {
@@ -335,14 +333,17 @@ class StorageAnalytics extends CController {
             return _('Already full');
         }
 
-        $days = floor($freeSpace / $dailyGrowth);
+        // Additional check for unrealistic growth
+        if ($dailyGrowth > $freeSpace * 10) {
+            return _('No growth'); // Too small growth to matter
+        }
+
+        $days = $freeSpace / $dailyGrowth;
         
         // Handle unrealistic calculations
         if ($days > 365 * 10) { // More than 10 years
             return _('More than 10 years');
-        }
-
-        if ($days > 365) {
+        } elseif ($days > 365) {
             $years = floor($days / 365);
             $remainingDays = $days % 365;
             $months = floor($remainingDays / 30);
@@ -354,7 +355,7 @@ class StorageAnalytics extends CController {
             }
         } elseif ($days > 30) {
             $months = floor($days / 30);
-            $remainingDays = $days % 30;
+            $remainingDays = floor($days % 30);
             
             if ($remainingDays > 0) {
                 return sprintf(_('%d months %d days'), $months, $remainingDays);
@@ -362,7 +363,7 @@ class StorageAnalytics extends CController {
                 return sprintf(_('%d months'), $months);
             }
         } else {
-            return sprintf(_('%d days'), $days);
+            return sprintf(_('%d days'), floor($days));
         }
     }
 
@@ -390,13 +391,12 @@ class StorageAnalytics extends CController {
     }
 
     /**
-     * Calculate summary statistics
+     * Calculate enhanced summary statistics - FIXED VERSION
      */
-    private function calculateSummary(array $storageData, array $filter): array {
+    private function calculateEnhancedSummary(array $storageData, array $filter): array {
         $summary = [
             'total_capacity_raw' => 0,
             'total_used_raw' => 0,
-            'total_growth_raw' => 0,
             'critical_count' => 0,
             'warning_count' => 0,
             'total_hosts' => 0,
@@ -407,14 +407,16 @@ class StorageAnalytics extends CController {
 
         $hosts = [];
         $growthData = [];
+        $allGrowthValues = []; // Track all growth values for average
 
         foreach ($storageData as $item) {
             $summary['total_capacity_raw'] += $item['total_raw'];
             $summary['total_used_raw'] += $item['used_raw'];
             
+            // Collect growth data for averaging
             if (isset($item['daily_growth_raw']) && $item['daily_growth_raw'] > 0) {
-                $summary['total_growth_raw'] += $item['daily_growth_raw'];
                 $growthData[] = $item;
+                $allGrowthValues[] = $item['daily_growth_raw'];
             }
 
             if ($item['status'] === 'critical') {
@@ -425,18 +427,19 @@ class StorageAnalytics extends CController {
 
             $hosts[$item['hostid']] = true;
 
-            // Track earliest full
+            // Track earliest full - USE CORRECT DAYS PARSING
             if (isset($item['daily_growth_raw']) && $item['daily_growth_raw'] > 0) {
-                preg_match('/\d+/', $item['days_until_full'], $matches);
-                $days = $matches[0] ?? PHP_INT_MAX;
+                $days = $this->parseDaysToNumber($item['days_until_full']);
                 
-                if ($days > 0 && ($summary['earliest_full'] === null || $days < $summary['earliest_full']['days'])) {
-                    $summary['earliest_full'] = [
-                        'host' => $item['host'],
-                        'mount' => $item['mount'],
-                        'days' => $days,
-                        'date' => date('Y-m-d', time() + ($days * 86400))
-                    ];
+                if ($days > 0 && $days < PHP_INT_MAX) {
+                    if ($summary['earliest_full'] === null || $days < $summary['earliest_full']['days']) {
+                        $summary['earliest_full'] = [
+                            'host' => $item['host'],
+                            'mount' => $item['mount'],
+                            'days' => $days,
+                            'date' => date('Y-m-d', time() + ($days * 86400))
+                        ];
+                    }
                 }
             }
         }
@@ -448,16 +451,33 @@ class StorageAnalytics extends CController {
             ? round(($summary['total_used_raw'] / $summary['total_capacity_raw']) * 100, 1)
             : 0;
 
-        // Calculate average growth (only from filesystems with growth)
-        $summary['avg_daily_growth'] = !empty($growthData)
-            ? $summary['total_growth_raw'] / count($growthData)
-            : 0;
+        // FIX: Calculate average growth correctly using median
+        $summary['avg_daily_growth'] = 0;
+        if (!empty($allGrowthValues)) {
+            // Use median instead of average to avoid outlier distortion
+            sort($allGrowthValues);
+            $count = count($allGrowthValues);
+            $middle = floor(($count - 1) / 2);
+            
+            if ($count % 2) {
+                // Odd number of elements
+                $summary['avg_daily_growth'] = $allGrowthValues[$middle];
+            } else {
+                // Even number of elements
+                $summary['avg_daily_growth'] = ($allGrowthValues[$middle] + $allGrowthValues[$middle + 1]) / 2;
+            }
+            
+            // Additional sanity check: cap at reasonable value
+            if ($summary['avg_daily_growth'] > 10737418240) { // 10GB/day
+                $summary['avg_daily_growth'] = 0;
+            }
+        }
 
         // Format for display
         $summary['total_capacity'] = $this->formatBytes($summary['total_capacity_raw']);
         $summary['total_used'] = $this->formatBytes($summary['total_used_raw']);
         $summary['avg_daily_growth_fmt'] = $summary['avg_daily_growth'] > 0 
-            ? $this->formatBytes($summary['avg_daily_growth'] * 86400) . '/day'
+            ? $this->formatBytes($summary['avg_daily_growth']) . '/day'
             : '0 B/day';
 
         // Get top 5 fastest growing filesystems
@@ -468,6 +488,39 @@ class StorageAnalytics extends CController {
         $summary['top_growers'] = array_slice($growthData, 0, 5);
 
         return $summary;
+    }
+
+    /**
+     * Helper to parse days string to number - FIXED
+     */
+    private function parseDaysToNumber(string $daysStr): int {
+        $days = PHP_INT_MAX;
+        
+        if ($daysStr === _('No growth') || $daysStr === _('Already full') || $daysStr === _('Growth error') || $daysStr === _('More than 10 years')) {
+            return PHP_INT_MAX;
+        }
+        
+        // Extract years
+        if (preg_match('/(\d+)\s*years?/', $daysStr, $matches)) {
+            $days = (int)$matches[1] * 365;
+        }
+        
+        // Extract months
+        if (preg_match('/(\d+)\s*months?/', $daysStr, $matches)) {
+            $days = isset($days) && $days < PHP_INT_MAX ? $days + ((int)$matches[1] * 30) : ((int)$matches[1] * 30);
+        }
+        
+        // Extract days
+        if (preg_match('/(\d+)\s*days?/', $daysStr, $matches)) {
+            $days = isset($days) && $days < PHP_INT_MAX ? $days + (int)$matches[1] : (int)$matches[1];
+        }
+        
+        // If it's just a plain number
+        if ($days === PHP_INT_MAX && is_numeric($daysStr)) {
+            $days = (int)$daysStr;
+        }
+        
+        return $days;
     }
 
     /**
