@@ -4,6 +4,23 @@
  * Note: This is used both inline and in modal
  */
 
+/**
+ * Local helper to convert stored trend code into label.
+ */
+function sa_get_trend_label(string $trend): string {
+    switch ($trend) {
+        case 'increasing':
+            return _('Increasing');
+        case 'decreasing':
+            return _('Decreasing');
+        case 'seasonal':
+            return _('Seasonal pattern');
+        default:
+            return _('Stable');
+    }
+}
+
+
 // For inline use, we need the data
 if (!isset($storageData)) {
     return;
@@ -30,7 +47,7 @@ foreach ($storageData as $item) {
             <?= htmlspecialchars($hostData['host']) ?>
             <span class="fs-count">(<?= count($hostData['filesystems']) ?> filesystems)</span>
         </h4>
-        
+
         <table class="fs-details-table">
             <thead>
                 <tr>
@@ -46,7 +63,7 @@ foreach ($storageData as $item) {
                 </tr>
             </thead>
             <tbody>
-                <?php foreach ($hostData['filesystems'] as $fs): 
+                <?php foreach ($hostData['filesystems'] as $fs):
                     $free = $fs['total_raw'] - $fs['used_raw'];
                     $free_percent = $fs['total_raw'] > 0 ? round(($free / $fs['total_raw']) * 100, 1) : 0;
                 ?>
@@ -90,15 +107,14 @@ foreach ($storageData as $item) {
                     </td>
                     <td>
                         <?php if (isset($fs['growth_trend'])): ?>
-                            <span class="trend-badge <?= $fs['growth_trend'] ?>" 
+                            <span class="trend-badge <?= $fs['growth_trend'] ?>"
                                   title="<?= _('Growth trend') ?>">
-                                <?= $this->getTrendLabel($fs['growth_trend']) ?>
                             </span>
                         <?php endif; ?>
                     </td>
                     <td>
                         <div class="fs-actions">
-                            <button type="button" class="btn-chart btn-icon" 
+                            <button type="button" class="btn-chart btn-icon"
                                     title="<?= _('View growth chart') ?>"
                                     data-hostid="<?= $hostId ?>"
                                     data-mount="<?= htmlspecialchars($fs['mount']) ?>">
