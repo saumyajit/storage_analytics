@@ -537,73 +537,108 @@ class StorageAnalytics extends CController {
 		return $days;
 	}
 
+	/**
+	* Get host groups for a specific host
+	*/
+	private function getHostGroups(int $hostId): array {
+		static $cache = [];
+		
+		if (!isset($cache[$hostId])) {
+			$groups = API::HostGroup()->get([
+				'output' => ['groupid'],
+				'hostids' => [$hostId],
+				'preservekeys' => true
+			]);
+			
+			$cache[$hostId] = array_keys($groups);
+		}
+		
+		return $cache[$hostId];
+	}
+
     /**
      * Get filter options for UI dropdowns
      */
-    private function getFilterOptions(array $currentFilter): array {
-        $options = [
-            'hostgroups' => [],
-            'hosts' => [],
-            'time_ranges' => [
-                7 => _('Last 7 days'),
-                14 => _('Last 14 days'),
-                30 => _('Last 30 days'),
-                90 => _('Last 90 days'),
-                180 => _('Last 180 days'),
-                365 => _('Last year')
-            ],
-            'prediction_methods' => [
-                'simple' => _('Simple Linear'),
-                'seasonal' => _('Seasonal Adjusted')
-            ],
-            'refresh_intervals' => [
-                0 => _('Manual'),
-                30 => _('30 seconds'),
-                60 => _('1 minute'),
-                120 => _('2 minutes'),
-                300 => _('5 minutes'),
-                600 => _('10 minutes')
-            ]
-        ];
-
-        // Get host groups
-        $groups = API::HostGroup()->get([
-            'output' => ['groupid', 'name'],
-            'sortfield' => 'name',
-            'preservekeys' => true
-        ]);
-
-        foreach ($groups as $group) {
-            $options['hostgroups'][] = [
-                'id' => $group['groupid'],
-                'name' => $group['name'],
-                'selected' => in_array($group['groupid'], $currentFilter['groupids'] ?? [])
-            ];
-        }
-
-        // Get hosts (filtered by selected groups if any)
-        $hostParams = [
-            'output' => ['hostid', 'host', 'name'],
-            'sortfield' => 'host'
-        ];
-
-        if (!empty($currentFilter['groupids'])) {
-            $hostParams['groupids'] = $currentFilter['groupids'];
-        }
-
-        $hosts = API::Host()->get($hostParams);
-
-        foreach ($hosts as $host) {
-            $options['hosts'][] = [
-                'id' => $host['hostid'],
-                'name' => $host['name'] ?: $host['host'],
-                'host' => $host['host'],
-                'selected' => in_array($host['hostid'], $currentFilter['hostids'] ?? [])
-            ];
-        }
-
-        return $options;
-    }
+	private function getFilterOptions(array $currentFilter): array {
+		$options = [
+			'hostgroups' => [],
+			'hosts' => [],
+			'time_ranges' => [
+				7 => _('Last 7 days'),
+				14 => _('Last 14 days'),
+				30 => _('Last 30 days'),
+				90 => _('Last 90 days'),
+				180 => _('Last 180 days'),
+				365 => _('Last year')
+			],
+			'prediction_methods' => [
+				'simple' => _('Simple Linear'),
+				'seasonal' => _('Seasonal Adjusted')
+			],
+			'refresh_intervals' => [
+				0 => _('Manual'),
+				30 => _('30 seconds'),
+				60 => _('1 minute'),
+				120 => _('2 minutes'),
+				300 => _('5 minutes'),
+				600 => _('10 minutes')
+			]
+		];
+	
+		// Get host groups
+		$groups = API::HostGroup()->get([
+			'output' => ['groupid', 'name'],
+			'sortfield' => 'name',
+			'preservekeys' => true
+		]);
+	
+		foreach ($groups as $group) {
+			$options['hostgroups'][] = [
+				'id' => $group['groupid'],
+				'name' => $group['name'],
+				'selected' => in_array($group['groupid'], $currentFilter['groupids'] ?? [])
+			];
+		}
+	
+		// Get hosts WITH their groups using selectHostGroups (new parameter)
+		$hostParams = [
+			'output' => ['hostid', 'host', 'name'],
+			'selectHostGroups' => ['groupid'], // This is the new parameter name
+			'sortfield' => 'host'
+		];
+	
+		if (!empty($currentFilter['groupids'])) {
+			$hostParams['groupids'] = $currentFilter['groupids'];
+		}
+	
+		$hosts = API::Host()->get($hostParams);
+	
+		foreach ($hosts as $host) {
+			// Extract group IDs - note: key name changed from 'groups' to 'hostgroups'
+			$groupIds = [];
+			
+			// Check both possible key names for compatibility
+			if (isset($host['hostgroups'])) {
+				foreach ($host['hostgroups'] as $group) {
+					$groupIds[] = $group['groupid'];
+				}
+			} elseif (isset($host['groups'])) { // Fallback for older versions
+				foreach ($host['groups'] as $group) {
+					$groupIds[] = $group['groupid'];
+				}
+			}
+			
+			$options['hosts'][] = [
+				'id' => $host['hostid'],
+				'name' => $host['name'] ?: $host['host'],
+				'host' => $host['host'],
+				'selected' => in_array($host['hostid'], $currentFilter['hostids'] ?? []),
+				'groupids' => $groupIds
+			];
+		}
+	
+		return $options;
+	}
 
     /**
      * Helper to build query string from filters
