@@ -1,0 +1,19 @@
+{
+    "manifest_version": "2.0",
+    "name": "Storage Analytics",
+    "namespace": "StorageAnalytics",
+    "version": "1.0.0",
+    "vendor": "YourCompany",
+    "description": "Disk usage analytics with growth prediction and forecasting",
+    "url": "https://yourcompany.com",
+    "author": "Your Name",
+    "actions": {
+        "storage.analytics": [
+            "view"
+        ]
+    },
+    "requirements": {
+        "php_version": "7.4.0",
+        "zabbix_version": "6.0.0"
+    }
+}
