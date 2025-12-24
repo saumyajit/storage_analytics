@@ -7,6 +7,11 @@
 if (!isset($filterOptions) || !isset($filter)) {
     return;
 }
+
+// Filter groups to show only those starting with 'customer/'
+$customerGroups = array_filter($filterOptions['hostgroups'], function($group) {
+    return strpos($group['name'], 'CUSTOMER/') === 0;
+});
 ?>
 
 <div class="filter-section">
@@ -23,62 +28,65 @@ if (!isset($filterOptions) || !isset($filter)) {
             <input type="hidden" name="filter_enabled" value="1">
             
             <div class="filter-grid">
-                <!-- Step 1: Select Multiple Host Groups -->
+                <!-- Step 1: Select Multiple Host Groups (filtered to customer/ groups first) -->
                 <div class="filter-group">
                     <label for="groupids"><?= _('Host Groups') ?></label>
-                    <select id="groupids" name="groupids[]" multiple class="select" size="5">
+                    <select id="groupids" name="groupids[]" multiple class="select" size="6">
                         <option value=""><?= _('-- All groups --') ?></option>
-                        <?php foreach ($filterOptions['hostgroups'] as $group): ?>
+                        <?php foreach ($customerGroups as $group): ?>
+                            <?php 
+                            $isCustomerGroup = strpos($group['name'], 'customer/') === 0;
+                            $groupClass = $isCustomerGroup ? 'customer-group' : 'other-group';
+                            ?>
                             <option value="<?= $group['id'] ?>" 
+                                    class="<?= $groupClass ?>"
                                     <?= in_array($group['id'], $filter['groupids'] ?? []) ? 'selected' : '' ?>>
                                 <?= htmlspecialchars($group['name']) ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
-                    <small class="filter-hint"><?= _('Hold Ctrl/Cmd to select multiple groups') ?></small>
+                    <small class="filter-hint"><?= _('Hold Ctrl/Cmd to select multiple groups. Customer groups shown first.') ?></small>
                 </div>
                 
-                <!-- Step 2: Hosts will be auto-updated based on selected groups -->
+                <!-- Step 2: Hosts will be loaded via AJAX when groups are selected -->
                 <div class="filter-group">
                     <label for="hostids"><?= _('Hosts') ?></label>
                     <div id="hosts-container">
-                        <!-- This will be dynamically populated -->
-                        <select id="hostids" name="hostids[]" multiple class="select" 
-                                size="5" <?= empty($filter['groupids']) ? 'disabled' : '' ?>>
+                        <select id="hostids" name="hostids[]" multiple class="select" size="6" 
+                                <?= empty($filter['groupids']) ? 'disabled' : '' ?>>
                             <option value=""><?= _('All hosts in selected groups') ?></option>
                             <?php 
                             // Get selected group IDs
                             $selectedGroupIds = $filter['groupids'] ?? [];
                             
-                            // Filter hosts: show only hosts that belong to ANY selected group
-                            $displayedHosts = 0;
-                            foreach ($filterOptions['hosts'] as $host): 
-                                $hostGroupIds = $host['groupids'] ?? [];
-                                
-                                // Show host if:
-                                // 1. No groups selected (show all), OR
-                                // 2. Host belongs to ANY selected group
-                                if (empty($selectedGroupIds) || 
-                                    array_intersect($selectedGroupIds, $hostGroupIds)): 
-                                    $displayedHosts++;
+                            if (!empty($selectedGroupIds)) {
+                                // Filter hosts: show only hosts that belong to ANY selected group
+                                foreach ($filterOptions['hosts'] as $host): 
+                                    $hostGroupIds = $host['groupids'] ?? [];
+                                    
+                                    if (empty($selectedGroupIds) || array_intersect($selectedGroupIds, $hostGroupIds)): 
                             ?>
                                 <option value="<?= $host['id'] ?>" 
-                                        data-groups="<?= implode(',', $hostGroupIds) ?>"
                                         <?= in_array($host['id'], $filter['hostids'] ?? []) ? 'selected' : '' ?>>
                                     <?= htmlspecialchars($host['name']) ?> (<?= htmlspecialchars($host['host']) ?>)
                                 </option>
                             <?php 
-                                endif;
-                            endforeach; 
+                                    endif;
+                                endforeach;
+                            }
                             ?>
                         </select>
                     </div>
                     <small class="filter-hint" id="host-count-hint">
                         <?php 
                         if (empty($selectedGroupIds)) {
-                            echo _('Select host groups to see available hosts');
+                            echo _('Select host groups first');
                         } else {
-                            echo sprintf(_('%d hosts available in selected groups'), $displayedHosts);
+                            $hostsInGroups = array_filter($filterOptions['hosts'], function($host) use ($selectedGroupIds) {
+                                $hostGroupIds = $host['groupids'] ?? [];
+                                return array_intersect($selectedGroupIds, $hostGroupIds);
+                            });
+                            echo sprintf(_('%d hosts in selected groups'), count($hostsInGroups));
                         }
                         ?>
                     </small>
@@ -162,15 +170,61 @@ if (!isset($filterOptions) || !isset($filter)) {
 </div>
 
 <style>
+/* Style customer groups differently */
+.customer-group {
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+.other-group {
+    color: #7f8c8d;
+}
+
+/* Group separator */
+.customer-group + .other-group {
+    border-top: 1px dashed #ddd;
+    padding-top: 2px;
+}
+
+/* Better select styling */
+.select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #bdc3c7;
+    border-radius: 4px;
+    font-size: 13px;
+    background: white;
+}
+
+.select[multiple] {
+    min-height: 120px;
+    padding: 5px;
+}
+
+.select[multiple] option {
+    padding: 6px 8px;
+    margin: 1px 0;
+    border-radius: 3px;
+}
+
+.select[multiple] option:hover {
+    background: #f5f5f5;
+}
+
+.select[multiple] option:checked {
+    background: #3498db;
+    color: white;
+}
+
 /* Loading indicator */
-.loading-indicator {
+.loading {
     display: inline-block;
-    margin-left: 10px;
+    margin-left: 8px;
     color: #3498db;
     font-size: 12px;
 }
 
-.loading-indicator::after {
+.loading::after {
     content: '...';
     animation: dots 1.5s infinite;
 }
@@ -181,42 +235,14 @@ if (!isset($filterOptions) || !isset($filter)) {
     60%, 100% { content: '...'; }
 }
 
-/* Disabled state */
-.select:disabled {
-    background-color: #f5f5f5;
-    cursor: not-allowed;
-    opacity: 0.7;
-}
-
-/* Auto-update notification */
-.auto-update-notice {
-    background: #e8f4fc;
-    border: 1px solid #b3d9ff;
-    border-radius: 3px;
-    padding: 8px 12px;
-    margin: 10px 0;
-    font-size: 12px;
-    color: #0066cc;
-    display: none;
-}
-
-/* Better multiselect styling */
-.select[multiple] {
-    min-height: 120px;
-}
-
-.select[multiple] option {
-    padding: 5px 8px;
-    border-bottom: 1px solid #eee;
-}
-
-.select[multiple] option:hover {
-    background-color: #f5f5f5;
-}
-
-.select[multiple] option:checked {
-    background-color: #3498db;
-    color: white;
+/* Filter panel toggle */
+.filter-panel {
+    margin-top: 10px;
+    padding: 20px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
 .filter-actions button {
@@ -224,166 +250,146 @@ if (!isset($filterOptions) || !isset($filter)) {
     align-items: center;
     justify-content: center;
 }
-
 </style>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Store all hosts data from PHP
-    const allHosts = <?= json_encode($filterOptions['hosts']) ?>;
-    
-    // Store current host selections
-    const currentHostSelections = <?= json_encode($filter['hostids'] ?? []) ?>;
-    
-    // Get DOM elements
     const groupSelect = document.getElementById('groupids');
     const hostsContainer = document.getElementById('hosts-container');
     const hostCountHint = document.getElementById('host-count-hint');
     const filterForm = document.getElementById('filter-form');
     const clearButton = document.getElementById('clear-filters');
     
-    // Debug logging
-    console.log('Initializing filter with:', {
-        totalHosts: allHosts.length,
-        currentSelections: currentHostSelections,
-        selectedGroups: Array.from(groupSelect.selectedOptions).map(o => o.value)
-    });
+    // Store all hosts data for client-side filtering
+    const allHostsData = <?= json_encode($filterOptions['hosts']) ?>;
     
-    // Initialize the hosts list based on current selection
-    updateHostsList();
-    
-    // When groups change, update hosts list immediately
-    groupSelect.addEventListener('change', function() {
-        console.log('Group selection changed');
-        updateHostsList();
-    });
-    
-    // Clear all filters button
-    if (clearButton) {
-        clearButton.addEventListener('click', function(e) {
-            e.preventDefault();
-            groupSelect.selectedIndex = -1;
-            updateHostsList();
-            filterForm.submit();
+    // When groups change, filter hosts locally
+    if (groupSelect) {
+        groupSelect.addEventListener('change', function() {
+            const selectedGroupIds = getSelectedGroupIds();
+            updateHostsDropdown(selectedGroupIds);
         });
     }
     
-    // Function to update hosts list based on selected groups
-    function updateHostsList() {
-        const selectedGroupIds = getSelectedGroupIds();
-        console.log('Updating hosts for groups:', selectedGroupIds);
-        
-        if (selectedGroupIds.length === 0) {
-            // No groups selected: show placeholder
-            showNoGroupsSelected();
-            return;
-        }
-        
-        // Show loading indicator
-        showLoadingIndicator();
-        
-        // Filter hosts: show only hosts that belong to ANY selected group
-        const matchingHosts = filterHostsByGroups(selectedGroupIds);
-        
-        // Build the hosts dropdown
-        renderHostsDropdown(matchingHosts);
-        
-        // Update the count hint
-        updateHostCountHint(matchingHosts.length);
-        
-        // Auto-submit the form after a short delay
-        if (matchingHosts.length > 0) {
-            setTimeout(() => {
-                console.log('Auto-submitting form with filtered hosts');
+    // Clear all filters
+    if (clearButton) {
+        clearButton.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            // Clear all selections
+            if (groupSelect) groupSelect.selectedIndex = -1;
+            
+            // Clear hosts dropdown
+            if (hostsContainer) {
+                hostsContainer.innerHTML = `
+                    <select id="hostids" name="hostids[]" multiple class="select" size="6" disabled>
+                        <option value=""><?= _('Select host groups first') ?></option>
+                    </select>
+                `;
+            }
+            
+            // Update hint
+            if (hostCountHint) {
+                hostCountHint.textContent = '<?= _('Select host groups first') ?>';
+            }
+            
+            // Submit form to clear all filters
+            if (filterForm) {
+                // Add a flag to indicate clear action
+                const clearInput = document.createElement('input');
+                clearInput.type = 'hidden';
+                clearInput.name = 'clear_filters';
+                clearInput.value = '1';
+                filterForm.appendChild(clearInput);
+                
                 filterForm.submit();
-            }, 800); // 800ms delay to let user see the filtered hosts
+            }
+        });
+    }
+    
+    // Initialize hosts dropdown based on current selection
+    if (groupSelect && groupSelect.value) {
+        const initialGroupIds = getSelectedGroupIds();
+        if (initialGroupIds.length > 0) {
+            updateHostsDropdown(initialGroupIds);
         }
     }
     
+    // Helper functions
     function getSelectedGroupIds() {
+        if (!groupSelect) return [];
+        
         return Array.from(groupSelect.selectedOptions)
             .map(option => option.value)
             .filter(value => value !== '' && value !== null);
     }
     
-    function filterHostsByGroups(selectedGroupIds) {
-        return allHosts.filter(host => {
-            const hostGroupIds = host.groupids || [];
-            
-            // Check if host belongs to ANY selected group
-            const hasMatchingGroup = selectedGroupIds.some(groupId => {
-                return hostGroupIds.includes(parseInt(groupId));
-            });
-            
-            return hasMatchingGroup;
-        });
-    }
-    
-    function renderHostsDropdown(hosts) {
-        if (hosts.length === 0) {
+    function updateHostsDropdown(selectedGroupIds) {
+        if (!hostsContainer || !hostCountHint) return;
+        
+        if (selectedGroupIds.length === 0) {
+            // No groups selected
             hostsContainer.innerHTML = `
-                <select id="hostids" name="hostids[]" multiple class="select" size="5" disabled>
-                    <option value=""><?= _("No hosts found in selected groups") ?></option>
+                <select id="hostids" name="hostids[]" multiple class="select" size="6" disabled>
+                    <option value=""><?= _('Select host groups first') ?></option>
                 </select>
             `;
+            hostCountHint.textContent = '<?= _('Select host groups first') ?>';
             return;
         }
         
-        let optionsHtml = `
-            <option value=""><?= _("All hosts in selected groups") ?></option>
+        // Show loading
+        hostCountHint.innerHTML = '<span class="loading"><?= _('Filtering hosts') ?></span>';
+        
+        // Filter hosts locally
+        const filteredHosts = allHostsData.filter(host => {
+            const hostGroupIds = host.groupids || [];
+            return arrayIntersects(selectedGroupIds, hostGroupIds);
+        });
+        
+        // Build hosts dropdown
+        let hostsHtml = `
+            <select id="hostids" name="hostids[]" multiple class="select" size="6">
+                <option value=""><?= _('All hosts in selected groups') ?></option>
         `;
         
-        hosts.forEach(host => {
-            const isSelected = currentHostSelections.includes(host.id.toString());
-            const escapedName = escapeHtml(host.name || '');
-            const escapedHost = escapeHtml(host.host || '');
+        filteredHosts.forEach(host => {
+            // Check if this host was previously selected
+            const isSelected = isHostSelected(host.id);
             
-            optionsHtml += `
+            hostsHtml += `
                 <option value="${host.id}" ${isSelected ? 'selected' : ''}>
-                    ${escapedName} (${escapedHost})
+                    ${escapeHtml(host.name)} (${escapeHtml(host.host)})
                 </option>
             `;
         });
         
-        hostsContainer.innerHTML = `
-            <select id="hostids" name="hostids[]" multiple class="select" size="5">
-                ${optionsHtml}
-            </select>
-        `;
+        hostsHtml += '</select>';
         
-        // Re-attach change event to new select element
-        const newHostSelect = document.getElementById('hostids');
-        if (newHostSelect) {
-            newHostSelect.addEventListener('change', function() {
-                console.log('Manual host selection changed, submitting form');
-                setTimeout(() => filterForm.submit(), 300);
-            });
-        }
+        // Update the container
+        hostsContainer.innerHTML = hostsHtml;
+        
+        // Update count hint
+        hostCountHint.textContent = `${filteredHosts.length} <?= _('hosts in selected groups') ?>`;
+        
+        // Auto-submit after a short delay (optional)
+        setTimeout(() => {
+            if (filterForm && filteredHosts.length > 0) {
+                console.log('Auto-submitting with filtered hosts');
+                filterForm.submit();
+            }
+        }, 500);
     }
     
-    function showNoGroupsSelected() {
-        hostsContainer.innerHTML = `
-            <select id="hostids" name="hostids[]" multiple class="select" size="5" disabled>
-                <option value=""><?= _("Select host groups first") ?></option>
-            </select>
-        `;
-        hostCountHint.textContent = '<?= _("Select host groups to see available hosts") ?>';
+    function arrayIntersects(arr1, arr2) {
+        return arr1.some(item => arr2.includes(parseInt(item)));
     }
     
-    function showLoadingIndicator() {
-        hostCountHint.innerHTML = `
-            <span class="loading-indicator">
-                <?= _("Filtering hosts") ?>...
-            </span>
-        `;
-    }
-    
-    function updateHostCountHint(count) {
-        if (count === 0) {
-            hostCountHint.textContent = '<?= _("No hosts found in selected groups") ?>';
-        } else {
-            hostCountHint.textContent = `${count} <?= _("hosts available") ?>`;
-        }
+    function isHostSelected(hostId) {
+        // Check URL parameters for selected hosts
+        const urlParams = new URLSearchParams(window.location.search);
+        const selectedHosts = urlParams.getAll('hostids[]');
+        return selectedHosts.includes(hostId.toString());
     }
     
     function escapeHtml(text) {
@@ -392,27 +398,19 @@ document.addEventListener('DOMContentLoaded', function() {
         return div.innerHTML;
     }
     
-    // Optional: Auto-expand filter panel if there's an active filter
-    if (<?= $filter['filter_enabled'] ? 'true' : 'false' ?>) {
-        const filterToggle = document.getElementById('filter-toggle');
-        const filterPanel = document.getElementById('filter-panel');
-        if (filterToggle && filterPanel) {
-            filterPanel.style.display = 'block';
-            const icon = filterToggle.querySelector('.toggle-icon');
-            if (icon) icon.textContent = '▲';
-        }
-    }
-    
-    // Filter panel toggle
+    // Toggle filter panel
     const filterToggle = document.getElementById('filter-toggle');
-    if (filterToggle) {
+    const filterPanel = document.getElementById('filter-panel');
+    
+    if (filterToggle && filterPanel) {
         filterToggle.addEventListener('click', function() {
-            const panel = document.getElementById('filter-panel');
-            const icon = this.querySelector('.toggle-icon');
-            const isVisible = panel.style.display !== 'none';
+            const isVisible = filterPanel.style.display !== 'none';
+            filterPanel.style.display = isVisible ? 'none' : 'block';
             
-            panel.style.display = isVisible ? 'none' : 'block';
-            icon.textContent = isVisible ? '▼' : '▲';
+            const icon = this.querySelector('.toggle-icon');
+            if (icon) {
+                icon.textContent = isVisible ? '▼' : '▲';
+            }
         });
     }
 });
