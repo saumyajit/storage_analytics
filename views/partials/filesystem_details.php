@@ -112,23 +112,32 @@ foreach ($storageData as $item) {
                             </span>
                         <?php endif; ?>
                     </td>
-                    <td>
-                        <div class="fs-actions">
-                            <button type="button" class="btn-chart btn-icon"
-                                    title="<?= _('View growth chart') ?>"
-                                    data-hostid="<?= $hostId ?>"
-                                    data-mount="<?= htmlspecialchars($fs['mount']) ?>">
-                                📈
-                            </button>
-                            <?php if (!empty($fs['seasonal_pattern'])): ?>
-                                <button type="button" class="btn-pattern btn-icon"
-                                        title="<?= _('View seasonal pattern') ?>"
-                                        data-pattern='<?= json_encode($fs['seasonal_pattern']) ?>'>
-                                    📅
-                                </button>
-                            <?php endif; ?>
-                        </div>
-                    </td>
+					<td>
+						<div class="fs-actions">
+							<!-- LINK TO EXISTING ZABBIX GRAPH -->
+							<?php
+							// Build graph URL for this filesystem
+							// First, we need to get the item ID for this mount point
+							$graphUrl = "zabbix.php?action=charts.view&filter_hostids%5B%5D=" . $hostId;
+							?>
+							<a href="<?= $graphUrl ?>"
+							class="btn-chart btn-icon"
+							title="<?= _('View growth chart in Zabbix') ?>"
+							target="_blank"
+							data-hostid="<?= $hostId ?>"
+							data-mount="<?= htmlspecialchars($fs['mount']) ?>">
+								📈
+							</a>
+							
+							<?php if (!empty($fs['seasonal_pattern'])): ?>
+								<button type="button" class="btn-pattern btn-icon"
+										title="<?= _('View seasonal pattern') ?>"
+										data-pattern='<?= json_encode($fs['seasonal_pattern']) ?>'>
+									📅
+								</button>
+							<?php endif; ?>
+						</div>
+					</td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
