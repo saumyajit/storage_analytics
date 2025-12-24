@@ -224,6 +224,7 @@ if (!isset($filterOptions) || !isset($filter)) {
     align-items: center;
     justify-content: center;
 }
+
 </style>
 
 <script>
