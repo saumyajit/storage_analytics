@@ -158,3 +158,11 @@
         </form>
     </div>
 </div>
+
+<style>
+.filter-actions button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+</style>
