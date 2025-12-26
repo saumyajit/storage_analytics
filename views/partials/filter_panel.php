@@ -1,6 +1,6 @@
 <?php
 /**
- * Filter Panel Partial
+ * Filter Panel Partial - Zabbix Style
  */
 
 // For inline use, we need the data
@@ -8,10 +8,10 @@ if (!isset($filterOptions) || !isset($filter)) {
     return;
 }
 
-// Filter groups to show only those starting with 'customer/'
-$customerGroups = array_filter($filterOptions['hostgroups'], function($group) {
-    return strpos($group['name'], 'CUSTOMER/') === 0;
-});
+// Get limited initial groups (like Zabbix does)
+$initialGroups = array_slice($filterOptions['hostgroups'], 0, 5); // Limit to 5 initially
+$selectedGroupIds = $filter['groupids'] ?? [];
+$selectedHostIds = $filter['hostids'] ?? [];
 ?>
 
 <div class="filter-section">
@@ -28,65 +28,57 @@ $customerGroups = array_filter($filterOptions['hostgroups'], function($group) {
             <input type="hidden" name="filter_enabled" value="1">
             
             <div class="filter-grid">
-                <!-- Step 1: Select Multiple Host Groups (filtered to customer/ groups first) -->
+                <!-- Host Groups Filter - Simple Select like Zabbix -->
                 <div class="filter-group">
                     <label for="groupids"><?= _('Host Groups') ?></label>
-                    <select id="groupids" name="groupids[]" multiple class="select" size="6">
+                    <select id="groupids" name="groupids[]" multiple class="select" size="5">
                         <option value=""><?= _('-- All groups --') ?></option>
-                        <?php foreach ($customerGroups as $group): ?>
-                            <?php 
-                            $isCustomerGroup = strpos($group['name'], 'customer/') === 0;
-                            $groupClass = $isCustomerGroup ? 'customer-group' : 'other-group';
-                            ?>
+                        <?php foreach ($initialGroups as $group): ?>
+                            <?php if (strpos($group['name'], 'CUSTOMER/') === 0): ?>
                             <option value="<?= $group['id'] ?>" 
-                                    class="<?= $groupClass ?>"
-                                    <?= in_array($group['id'], $filter['groupids'] ?? []) ? 'selected' : '' ?>>
+                                    class="customer-group"
+                                    <?= in_array($group['id'], $selectedGroupIds) ? 'selected' : '' ?>>
                                 <?= htmlspecialchars($group['name']) ?>
                             </option>
+                            <?php endif; ?>
                         <?php endforeach; ?>
                     </select>
-                    <small class="filter-hint"><?= _('Hold Ctrl/Cmd to select multiple groups. Customer groups shown first.') ?></small>
+                    <small class="filter-hint">
+                        <?= sprintf(_('Showing %d groups. Select to filter.'), count($initialGroups)) ?>
+                    </small>
                 </div>
                 
-                <!-- Step 2: Hosts will be loaded via AJAX when groups are selected -->
+                <!-- Hosts Filter - Loaded via AJAX when groups selected -->
                 <div class="filter-group">
                     <label for="hostids"><?= _('Hosts') ?></label>
-                    <div id="hosts-container">
-                        <select id="hostids" name="hostids[]" multiple class="select" size="6" 
-                                <?= empty($filter['groupids']) ? 'disabled' : '' ?>>
-                            <option value=""><?= _('All hosts in selected groups') ?></option>
-                            <?php 
-                            // Get selected group IDs
-                            $selectedGroupIds = $filter['groupids'] ?? [];
-                            
-                            if (!empty($selectedGroupIds)) {
-                                // Filter hosts: show only hosts that belong to ANY selected group
-                                foreach ($filterOptions['hosts'] as $host): 
-                                    $hostGroupIds = $host['groupids'] ?? [];
-                                    
-                                    if (empty($selectedGroupIds) || array_intersect($selectedGroupIds, $hostGroupIds)): 
-                            ?>
-                                <option value="<?= $host['id'] ?>" 
-                                        <?= in_array($host['id'], $filter['hostids'] ?? []) ? 'selected' : '' ?>>
-                                    <?= htmlspecialchars($host['name']) ?> (<?= htmlspecialchars($host['host']) ?>)
-                                </option>
-                            <?php 
-                                    endif;
-                                endforeach;
-                            }
-                            ?>
-                        </select>
-                    </div>
+                    <select id="hostids" name="hostids[]" multiple class="select" size="5" 
+                            <?= empty($selectedGroupIds) ? 'disabled' : '' ?>>
+                        <option value=""><?= _('-- All hosts --') ?></option>
+                        <?php 
+                        // Only show hosts if groups are selected
+                        if (!empty($selectedGroupIds) && !empty($filterOptions['hosts'])) {
+                            // Limit to first 50 hosts for performance
+                            $limitedHosts = array_slice($filterOptions['hosts'], 0, 50);
+                            foreach ($limitedHosts as $host): 
+                                $hostGroupIds = $host['groupids'] ?? [];
+                                if (empty($selectedGroupIds) || array_intersect($selectedGroupIds, $hostGroupIds)): 
+                        ?>
+                            <option value="<?= $host['id'] ?>" 
+                                    <?= in_array($host['id'], $selectedHostIds) ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($host['name'] ?: $host['host']) ?>
+                            </option>
+                        <?php 
+                                endif;
+                            endforeach;
+                        }
+                        ?>
+                    </select>
                     <small class="filter-hint" id="host-count-hint">
                         <?php 
                         if (empty($selectedGroupIds)) {
-                            echo _('Select host groups first');
+                            echo _('Select groups first to see hosts');
                         } else {
-                            $hostsInGroups = array_filter($filterOptions['hosts'], function($host) use ($selectedGroupIds) {
-                                $hostGroupIds = $host['groupids'] ?? [];
-                                return array_intersect($selectedGroupIds, $hostGroupIds);
-                            });
-                            echo sprintf(_('%d hosts in selected groups'), count($hostsInGroups));
+                            echo _('Select specific hosts or leave empty for all');
                         }
                         ?>
                     </small>
@@ -170,23 +162,35 @@ $customerGroups = array_filter($filterOptions['hostgroups'], function($group) {
 </div>
 
 <style>
-/* Style customer groups differently */
-.customer-group {
-    font-weight: bold;
+/* Simple Zabbix-like styling */
+.filter-panel {
+    margin-top: 10px;
+    padding: 20px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.filter-group label {
+    margin-bottom: 6px;
+    font-weight: 600;
+    font-size: 13px;
     color: #2c3e50;
 }
 
-.other-group {
-    color: #7f8c8d;
-}
-
-/* Group separator */
-.customer-group + .other-group {
-    border-top: 1px dashed #ddd;
-    padding-top: 2px;
-}
-
-/* Better select styling */
 .select {
     width: 100%;
     padding: 8px 12px;
@@ -194,6 +198,7 @@ $customerGroups = array_filter($filterOptions['hostgroups'], function($group) {
     border-radius: 4px;
     font-size: 13px;
     background: white;
+    box-sizing: border-box;
 }
 
 .select[multiple] {
@@ -207,201 +212,139 @@ $customerGroups = array_filter($filterOptions['hostgroups'], function($group) {
     border-radius: 3px;
 }
 
-.select[multiple] option:hover {
-    background: #f5f5f5;
-}
-
 .select[multiple] option:checked {
     background: #3498db;
     color: white;
 }
 
-/* Loading indicator */
-.loading {
-    display: inline-block;
-    margin-left: 8px;
-    color: #3498db;
+.customer-group {
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+.filter-hint {
+    font-size: 11px;
+    color: #95a5a6;
+    margin-top: 3px;
+}
+
+.threshold-group .threshold-inputs {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+
+.threshold-label {
     font-size: 12px;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-right: 5px;
 }
 
-.loading::after {
-    content: '...';
-    animation: dots 1.5s infinite;
+.threshold-label.warning {
+    background: #f39c12;
+    color: white;
 }
 
-@keyframes dots {
-    0%, 20% { content: '.'; }
-    40% { content: '..'; }
-    60%, 100% { content: '...'; }
+.threshold-label.critical {
+    background: #e74c3c;
+    color: white;
 }
 
-/* Filter panel toggle */
-.filter-panel {
-    margin-top: 10px;
-    padding: 20px;
-    background: white;
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+.threshold-unit {
+    font-size: 12px;
+    color: #7f8c8d;
+    margin-left: 3px;
 }
 
-.filter-actions button {
+.refresh-group .refresh-controls {
     display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 10px;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.filter-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+}
+
+.btn-apply, .btn-clear {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.btn-apply {
+    background: #2ecc71;
+    color: white;
+}
+
+.btn-apply:hover {
+    background: #27ae60;
+}
+
+.btn-clear {
+    background: #ecf0f1;
+    color: #7f8c8d;
+}
+
+.btn-clear:hover {
+    background: #bdc3c7;
+}
+
+.btn-filter-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: #3498db;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    margin-bottom: 10px;
+}
+
+.btn-filter-toggle:hover {
+    background: #2980b9;
+}
+
+.filter-badge {
+    background: #e74c3c;
+    color: white;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    margin-left: 5px;
 }
 </style>
 
 <script>
+// Simple Zabbix-style filter logic
 document.addEventListener('DOMContentLoaded', function() {
-    const groupSelect = document.getElementById('groupids');
-    const hostsContainer = document.getElementById('hosts-container');
-    const hostCountHint = document.getElementById('host-count-hint');
-    const filterForm = document.getElementById('filter-form');
-    const clearButton = document.getElementById('clear-filters');
-    
-    // Store all hosts data for client-side filtering
-    const allHostsData = <?= json_encode($filterOptions['hosts']) ?>;
-    
-    // When groups change, filter hosts locally
-    if (groupSelect) {
-        groupSelect.addEventListener('change', function() {
-            const selectedGroupIds = getSelectedGroupIds();
-            updateHostsDropdown(selectedGroupIds);
-        });
-    }
-    
-    // Clear all filters
-    if (clearButton) {
-        clearButton.addEventListener('click', function(e) {
-            e.preventDefault();
-            
-            // Clear all selections
-            if (groupSelect) groupSelect.selectedIndex = -1;
-            
-            // Clear hosts dropdown
-            if (hostsContainer) {
-                hostsContainer.innerHTML = `
-                    <select id="hostids" name="hostids[]" multiple class="select" size="6" disabled>
-                        <option value=""><?= _('Select host groups first') ?></option>
-                    </select>
-                `;
-            }
-            
-            // Update hint
-            if (hostCountHint) {
-                hostCountHint.textContent = '<?= _('Select host groups first') ?>';
-            }
-            
-            // Submit form to clear all filters
-            if (filterForm) {
-                // Add a flag to indicate clear action
-                const clearInput = document.createElement('input');
-                clearInput.type = 'hidden';
-                clearInput.name = 'clear_filters';
-                clearInput.value = '1';
-                filterForm.appendChild(clearInput);
-                
-                filterForm.submit();
-            }
-        });
-    }
-    
-    // Initialize hosts dropdown based on current selection
-    if (groupSelect && groupSelect.value) {
-        const initialGroupIds = getSelectedGroupIds();
-        if (initialGroupIds.length > 0) {
-            updateHostsDropdown(initialGroupIds);
-        }
-    }
-    
-    // Helper functions
-    function getSelectedGroupIds() {
-        if (!groupSelect) return [];
-        
-        return Array.from(groupSelect.selectedOptions)
-            .map(option => option.value)
-            .filter(value => value !== '' && value !== null);
-    }
-    
-    function updateHostsDropdown(selectedGroupIds) {
-        if (!hostsContainer || !hostCountHint) return;
-        
-        if (selectedGroupIds.length === 0) {
-            // No groups selected
-            hostsContainer.innerHTML = `
-                <select id="hostids" name="hostids[]" multiple class="select" size="6" disabled>
-                    <option value=""><?= _('Select host groups first') ?></option>
-                </select>
-            `;
-            hostCountHint.textContent = '<?= _('Select host groups first') ?>';
-            return;
-        }
-        
-        // Show loading
-        hostCountHint.innerHTML = '<span class="loading"><?= _('Filtering hosts') ?></span>';
-        
-        // Filter hosts locally
-        const filteredHosts = allHostsData.filter(host => {
-            const hostGroupIds = host.groupids || [];
-            return arrayIntersects(selectedGroupIds, hostGroupIds);
-        });
-        
-        // Build hosts dropdown
-        let hostsHtml = `
-            <select id="hostids" name="hostids[]" multiple class="select" size="6">
-                <option value=""><?= _('All hosts in selected groups') ?></option>
-        `;
-        
-        filteredHosts.forEach(host => {
-            // Check if this host was previously selected
-            const isSelected = isHostSelected(host.id);
-            
-            hostsHtml += `
-                <option value="${host.id}" ${isSelected ? 'selected' : ''}>
-                    ${escapeHtml(host.name)} (${escapeHtml(host.host)})
-                </option>
-            `;
-        });
-        
-        hostsHtml += '</select>';
-        
-        // Update the container
-        hostsContainer.innerHTML = hostsHtml;
-        
-        // Update count hint
-        hostCountHint.textContent = `${filteredHosts.length} <?= _('hosts in selected groups') ?>`;
-        
-        // Auto-submit after a short delay (optional)
-        setTimeout(() => {
-            if (filterForm && filteredHosts.length > 0) {
-                console.log('Auto-submitting with filtered hosts');
-                filterForm.submit();
-            }
-        }, 500);
-    }
-    
-    function arrayIntersects(arr1, arr2) {
-        return arr1.some(item => arr2.includes(parseInt(item)));
-    }
-    
-    function isHostSelected(hostId) {
-        // Check URL parameters for selected hosts
-        const urlParams = new URLSearchParams(window.location.search);
-        const selectedHosts = urlParams.getAll('hostids[]');
-        return selectedHosts.includes(hostId.toString());
-    }
-    
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-    
-    // Toggle filter panel
     const filterToggle = document.getElementById('filter-toggle');
     const filterPanel = document.getElementById('filter-panel');
+    const groupSelect = document.getElementById('groupids');
+    const hostSelect = document.getElementById('hostids');
+    const clearButton = document.getElementById('clear-filters');
+    const filterForm = document.getElementById('filter-form');
     
+    // Toggle filter panel
     if (filterToggle && filterPanel) {
         filterToggle.addEventListener('click', function() {
             const isVisible = filterPanel.style.display !== 'none';
@@ -410,6 +353,60 @@ document.addEventListener('DOMContentLoaded', function() {
             const icon = this.querySelector('.toggle-icon');
             if (icon) {
                 icon.textContent = isVisible ? '▼' : '▲';
+            }
+        });
+    }
+    
+    // When groups change, enable/disable hosts dropdown
+    if (groupSelect && hostSelect) {
+        groupSelect.addEventListener('change', function() {
+            const selectedGroups = Array.from(this.selectedOptions)
+                .map(option => option.value)
+                .filter(value => value !== '' && value !== null);
+            
+            if (selectedGroups.length > 0) {
+                hostSelect.disabled = false;
+                // In a real Zabbix implementation, we'd fetch hosts via AJAX here
+                // For now, we just enable the dropdown
+            } else {
+                hostSelect.disabled = true;
+                hostSelect.selectedIndex = 0;
+            }
+        });
+    }
+    
+    // Clear all filters
+    if (clearButton) {
+        clearButton.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            // Clear selections
+            if (groupSelect) groupSelect.selectedIndex = -1;
+            if (hostSelect) {
+                hostSelect.selectedIndex = 0;
+                hostSelect.disabled = true;
+            }
+            
+            // Submit form to clear all filters
+            if (filterForm) {
+                const clearInput = document.createElement('input');
+                clearInput.type = 'hidden';
+                clearInput.name = 'clear_filters';
+                clearInput.value = '1';
+                filterForm.appendChild(clearInput);
+                filterForm.submit();
+            }
+        });
+    }
+    
+    // Simple form submission
+    if (filterForm) {
+        filterForm.addEventListener('submit', function() {
+            // Add loading indicator
+            const submitBtn = this.querySelector('.btn-apply');
+            if (submitBtn) {
+                submitBtn.innerHTML = '<span class="icon-loading"></span> <?= _("Applying...") ?>';
+                submitBtn.disabled = true;
             }
         });
     }
