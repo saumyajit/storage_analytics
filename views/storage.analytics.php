@@ -26,21 +26,51 @@ $end_record = min($page * $page_limit, $total_records);
 <div class="storage-analytics-container" id="storage-analytics-container">
     
     <!-- Page Header -->
-    <div class="header">
-        <div class="header-left">
-            <h1><?= _('Storage Analytics') ?></h1>
-            <p class="header-subtitle"><?= _('Monitor disk space usage and predict storage capacity needs') ?></p>
-        </div>
-        <div class="header-right">
-            <button type="button" class="btn-export btn-alt">
-                <span class="icon-export"></span> <?= _('Export') ?>
-            </button>
-            <div class="last-updated">
-                <?= sprintf(_('Updated: %s'), date('H:i:s')) ?>
-            </div>
-        </div>
-    </div>
-    
+	<div class="header">
+		<div class="header-left">
+			<h1><?= _('Storage Analytics') ?></h1>
+			<p class="header-subtitle"><?= _('Monitor disk space usage and predict storage capacity needs') ?></p>
+		</div>
+		<div class="header-right" style="display: flex; align-items: center; gap: 8px;">
+			<!-- Simple Export Buttons -->
+			<a href="zabbix.php?action=storage.analytics&export=csv<?= $buildQueryString($filter) ?>" 
+			class="btn-alt" 
+			style="display: inline-flex; align-items: center; gap: 5px; padding: 8px 12px; 
+					text-decoration: none; border: 1px solid #bdc3c7; border-radius: 4px;"
+			title="<?= _('Export as CSV') ?>">
+				<span>📊</span> CSV
+			</a>
+			
+			<a href="zabbix.php?action=storage.analytics&export=html<?= $buildQueryString($filter) ?>" 
+			class="btn-alt" 
+			style="display: inline-flex; align-items: center; gap: 5px; padding: 8px 12px; 
+					text-decoration: none; border: 1px solid #bdc3c7; border-radius: 4px;"
+			title="<?= _('Export as HTML') ?>">
+				<span>📄</span> HTML
+			</a>
+			
+			<a href="zabbix.php?action=storage.analytics&export=json<?= $buildQueryString($filter) ?>" 
+			class="btn-alt" 
+			style="display: inline-flex; align-items: center; gap: 5px; padding: 8px 12px; 
+					text-decoration: none; border: 1px solid #bdc3c7; border-radius: 4px;"
+			title="<?= _('Export as JSON') ?>">
+				<span>{ }</span> JSON
+			</a>
+			
+			<div class="last-updated">
+				<?= sprintf(_('Updated: %s'), date('H:i:s')) ?>
+			</div>
+		</div>
+	</div>
+	
+	<style>
+	/* Hover effects for buttons */
+	.btn-alt:hover {
+		background-color: #e0e0e0 !important;
+		border-color: #95a5a6 !important;
+	}
+	</style>
+   
     <!-- Include Filter Panel -->
     <?php include __DIR__ . '/partials/filter_panel.php'; ?>
     
