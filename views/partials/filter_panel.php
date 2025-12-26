@@ -1,6 +1,6 @@
 <?php
 /**
- * Filter Panel Partial - Zabbix Style
+ * Filter Panel Partial - Zabbix Style with Search
  */
 
 // For inline use, we need the data
@@ -9,9 +9,14 @@ if (!isset($filterOptions) || !isset($filter)) {
 }
 
 // Get limited initial groups (like Zabbix does)
-$initialGroups = array_slice($filterOptions['hostgroups'], 0, 5); // Limit to 5 initially
+$initialGroups = array_slice($filterOptions['hostgroups'], 0, 20); // Limit to 20 initially
 $selectedGroupIds = $filter['groupids'] ?? [];
 $selectedHostIds = $filter['hostids'] ?? [];
+
+// Filter customer groups only
+$customerGroups = array_filter($initialGroups, function($group) {
+    return strpos($group['name'], 'CUSTOMER/') === 0;
+});
 ?>
 
 <div class="filter-section">
@@ -28,44 +33,75 @@ $selectedHostIds = $filter['hostids'] ?? [];
             <input type="hidden" name="filter_enabled" value="1">
             
             <div class="filter-grid">
-                <!-- Host Groups Filter - Simple Select like Zabbix -->
+                <!-- Host Groups Filter with Search -->
                 <div class="filter-group">
                     <label for="groupids"><?= _('Host Groups') ?></label>
+                    
+                    <!-- Group Search -->
+                    <div class="dropdown-search-wrapper">
+                        <input type="text" 
+                               id="group-search" 
+                               class="dropdown-search-input"
+                               placeholder="<?= _('Search groups...') ?>"
+                               oninput="filterDropdown('groupids', this.value)">
+                        <div class="search-clear" onclick="clearSearch('group-search', 'groupids')" title="<?= _('Clear search') ?>">×</div>
+                    </div>
+                    
+                    <!-- Groups Dropdown -->
                     <select id="groupids" name="groupids[]" multiple class="select" size="5">
-                        <option value=""><?= _('-- All groups --') ?></option>
-                        <?php foreach ($initialGroups as $group): ?>
-                            <?php if (strpos($group['name'], 'CUSTOMER/') === 0): ?>
+                        <?php foreach ($customerGroups as $group): ?>
                             <option value="<?= $group['id'] ?>" 
                                     class="customer-group"
+                                    data-search="<?= htmlspecialchars(strtolower($group['name'])) ?>"
                                     <?= in_array($group['id'], $selectedGroupIds) ? 'selected' : '' ?>>
                                 <?= htmlspecialchars($group['name']) ?>
                             </option>
-                            <?php endif; ?>
                         <?php endforeach; ?>
                     </select>
+                    
+                    <!-- Group Count -->
+                    <div class="dropdown-count" id="group-count">
+                        <?= sprintf(_('%d groups'), count($customerGroups)) ?>
+                    </div>
+                    
                     <small class="filter-hint">
-                        <?= sprintf(_('Showing %d groups. Select to filter.'), count($initialGroups)) ?>
+                        <?= _('Type to search customer groups. Hold Ctrl/Cmd to select multiple.') ?>
                     </small>
                 </div>
                 
-                <!-- Hosts Filter - Loaded via AJAX when groups selected -->
+                <!-- Hosts Filter with Search -->
                 <div class="filter-group">
                     <label for="hostids"><?= _('Hosts') ?></label>
+                    
+                    <!-- Host Search -->
+                    <div class="dropdown-search-wrapper">
+                        <input type="text" 
+                               id="host-search" 
+                               class="dropdown-search-input"
+                               placeholder="<?= _('Search hosts...') ?>"
+                               oninput="filterDropdown('hostids', this.value)"
+                               <?= empty($selectedGroupIds) ? 'disabled' : '' ?>>
+                        <div class="search-clear" onclick="clearSearch('host-search', 'hostids')" title="<?= _('Clear search') ?>">×</div>
+                    </div>
+                    
+                    <!-- Hosts Dropdown -->
                     <select id="hostids" name="hostids[]" multiple class="select" size="5" 
                             <?= empty($selectedGroupIds) ? 'disabled' : '' ?>>
-                        <option value=""><?= _('-- All hosts --') ?></option>
                         <?php 
                         // Only show hosts if groups are selected
                         if (!empty($selectedGroupIds) && !empty($filterOptions['hosts'])) {
-                            // Limit to first 50 hosts for performance
-                            $limitedHosts = array_slice($filterOptions['hosts'], 0, 50);
+                            // Limit to first 100 hosts for performance
+                            $limitedHosts = array_slice($filterOptions['hosts'], 0, 100);
                             foreach ($limitedHosts as $host): 
                                 $hostGroupIds = $host['groupids'] ?? [];
-                                if (empty($selectedGroupIds) || array_intersect($selectedGroupIds, $hostGroupIds)): 
+                                if (array_intersect($selectedGroupIds, $hostGroupIds)): 
+                                    $hostName = $host['name'] ?: $host['host'];
+                                    $displayName = $hostName . ($host['host'] !== $hostName ? ' (' . $host['host'] . ')' : '');
                         ?>
                             <option value="<?= $host['id'] ?>" 
+                                    data-search="<?= htmlspecialchars(strtolower($displayName)) ?>"
                                     <?= in_array($host['id'], $selectedHostIds) ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($host['name'] ?: $host['host']) ?>
+                                <?= htmlspecialchars($displayName) ?>
                             </option>
                         <?php 
                                 endif;
@@ -73,14 +109,30 @@ $selectedHostIds = $filter['hostids'] ?? [];
                         }
                         ?>
                     </select>
-                    <small class="filter-hint" id="host-count-hint">
+                    
+                    <!-- Host Count -->
+                    <div class="dropdown-count" id="host-count">
                         <?php 
                         if (empty($selectedGroupIds)) {
-                            echo _('Select groups first to see hosts');
+                            echo _('Select groups first');
                         } else {
-                            echo _('Select specific hosts or leave empty for all');
+                            $hostCount = 0;
+                            if (!empty($filterOptions['hosts'])) {
+                                $limitedHosts = array_slice($filterOptions['hosts'], 0, 100);
+                                foreach ($limitedHosts as $host) {
+                                    $hostGroupIds = $host['groupids'] ?? [];
+                                    if (array_intersect($selectedGroupIds, $hostGroupIds)) {
+                                        $hostCount++;
+                                    }
+                                }
+                            }
+                            echo sprintf(_('%d hosts'), $hostCount);
                         }
                         ?>
+                    </div>
+                    
+                    <small class="filter-hint">
+                        <?= _('Type to search hosts. Select groups first.') ?>
                     </small>
                 </div>
                 
@@ -162,7 +214,7 @@ $selectedHostIds = $filter['hostids'] ?? [];
 </div>
 
 <style>
-/* Simple Zabbix-like styling */
+/* Filter panel styling */
 .filter-panel {
     margin-top: 10px;
     padding: 20px;
@@ -191,6 +243,53 @@ $selectedHostIds = $filter['hostids'] ?? [];
     color: #2c3e50;
 }
 
+/* Dropdown search styling */
+.dropdown-search-wrapper {
+    position: relative;
+    margin-bottom: 8px;
+}
+
+.dropdown-search-input {
+    width: 100%;
+    padding: 8px 30px 8px 12px;
+    border: 1px solid #bdc3c7;
+    border-radius: 4px;
+    font-size: 13px;
+    background: white;
+    box-sizing: border-box;
+}
+
+.dropdown-search-input:focus {
+    outline: none;
+    border-color: #3498db;
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+.dropdown-search-input:disabled {
+    background: #f5f5f5;
+    color: #999;
+    cursor: not-allowed;
+}
+
+.search-clear {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #95a5a6;
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    padding: 0 4px;
+    border-radius: 50%;
+}
+
+.search-clear:hover {
+    background: #ecf0f1;
+    color: #e74c3c;
+}
+
+/* Dropdown styling */
 .select {
     width: 100%;
     padding: 8px 12px;
@@ -210,6 +309,7 @@ $selectedHostIds = $filter['hostids'] ?? [];
     padding: 6px 8px;
     margin: 1px 0;
     border-radius: 3px;
+    display: none; /* Hidden by default, shown by JavaScript filtering */
 }
 
 .select[multiple] option:checked {
@@ -217,6 +317,19 @@ $selectedHostIds = $filter['hostids'] ?? [];
     color: white;
 }
 
+.select[multiple] option.filter-match {
+    display: block; /* Show matching options */
+}
+
+/* Dropdown count */
+.dropdown-count {
+    margin-top: 5px;
+    font-size: 11px;
+    color: #7f8c8d;
+    text-align: right;
+}
+
+/* Customer group styling */
 .customer-group {
     font-weight: bold;
     color: #2c3e50;
@@ -228,6 +341,7 @@ $selectedHostIds = $filter['hostids'] ?? [];
     margin-top: 3px;
 }
 
+/* Thresholds */
 .threshold-group .threshold-inputs {
     display: flex;
     gap: 15px;
@@ -258,6 +372,7 @@ $selectedHostIds = $filter['hostids'] ?? [];
     margin-left: 3px;
 }
 
+/* Refresh controls */
 .refresh-group .refresh-controls {
     display: flex;
     align-items: center;
@@ -272,6 +387,7 @@ $selectedHostIds = $filter['hostids'] ?? [];
     cursor: pointer;
 }
 
+/* Filter actions */
 .filter-actions {
     display: flex;
     gap: 10px;
@@ -306,6 +422,7 @@ $selectedHostIds = $filter['hostids'] ?? [];
     background: #bdc3c7;
 }
 
+/* Filter toggle */
 .btn-filter-toggle {
     display: inline-flex;
     align-items: center;
@@ -332,17 +449,85 @@ $selectedHostIds = $filter['hostids'] ?? [];
     border-radius: 10px;
     margin-left: 5px;
 }
+
+/* Loading state */
+.icon-loading {
+    display: inline-block;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
 </style>
 
 <script>
-// Simple Zabbix-style filter logic
+// Simple dropdown filtering
+function filterDropdown(selectId, searchTerm) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    
+    const searchLower = searchTerm.toLowerCase().trim();
+    let visibleCount = 0;
+    
+    // Show/hide options based on search
+    for (let i = 0; i < select.options.length; i++) {
+        const option = select.options[i];
+        const searchText = option.getAttribute('data-search') || option.text.toLowerCase();
+        
+        if (searchLower === '') {
+            // Show all when search is empty
+            option.style.display = 'block';
+            option.classList.add('filter-match');
+            visibleCount++;
+        } else if (searchText.includes(searchLower)) {
+            option.style.display = 'block';
+            option.classList.add('filter-match');
+            visibleCount++;
+        } else {
+            option.style.display = 'none';
+            option.classList.remove('filter-match');
+        }
+    }
+    
+    // Update count display
+    const countElement = document.getElementById(selectId.replace('ids', '-count'));
+    if (countElement) {
+        if (selectId === 'groupids') {
+            countElement.textContent = visibleCount + ' <?= _("groups") ?>';
+        } else if (selectId === 'hostids') {
+            countElement.textContent = visibleCount + ' <?= _("hosts") ?>';
+        }
+    }
+}
+
+function clearSearch(searchInputId, selectId) {
+    const searchInput = document.getElementById(searchInputId);
+    const select = document.getElementById(selectId);
+    
+    if (searchInput) {
+        searchInput.value = '';
+        filterDropdown(selectId, '');
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     const filterToggle = document.getElementById('filter-toggle');
     const filterPanel = document.getElementById('filter-panel');
     const groupSelect = document.getElementById('groupids');
     const hostSelect = document.getElementById('hostids');
+    const hostSearch = document.getElementById('host-search');
     const clearButton = document.getElementById('clear-filters');
     const filterForm = document.getElementById('filter-form');
+    
+    // Initialize dropdown filtering
+    if (groupSelect) {
+        filterDropdown('groupids', '');
+    }
+    if (hostSelect) {
+        filterDropdown('hostids', '');
+    }
     
     // Toggle filter panel
     if (filterToggle && filterPanel) {
@@ -357,8 +542,8 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // When groups change, enable/disable hosts dropdown
-    if (groupSelect && hostSelect) {
+    // When groups change, update hosts dropdown
+    if (groupSelect && hostSelect && hostSearch) {
         groupSelect.addEventListener('change', function() {
             const selectedGroups = Array.from(this.selectedOptions)
                 .map(option => option.value)
@@ -366,11 +551,16 @@ document.addEventListener('DOMContentLoaded', function() {
             
             if (selectedGroups.length > 0) {
                 hostSelect.disabled = false;
-                // In a real Zabbix implementation, we'd fetch hosts via AJAX here
-                // For now, we just enable the dropdown
+                hostSearch.disabled = false;
+                
+                // Enable all host options and show them
+                for (let i = 0; i < hostSelect.options.length; i++) {
+                    hostSelect.options[i].disabled = false;
+                }
             } else {
                 hostSelect.disabled = true;
-                hostSelect.selectedIndex = 0;
+                hostSearch.disabled = true;
+                hostSelect.selectedIndex = -1;
             }
         });
     }
@@ -381,10 +571,23 @@ document.addEventListener('DOMContentLoaded', function() {
             e.preventDefault();
             
             // Clear selections
-            if (groupSelect) groupSelect.selectedIndex = -1;
+            if (groupSelect) {
+                groupSelect.selectedIndex = -1;
+                filterDropdown('groupids', '');
+            }
             if (hostSelect) {
-                hostSelect.selectedIndex = 0;
+                hostSelect.selectedIndex = -1;
+                filterDropdown('hostids', '');
                 hostSelect.disabled = true;
+            }
+            
+            // Clear search inputs
+            const groupSearch = document.getElementById('group-search');
+            const hostSearch = document.getElementById('host-search');
+            if (groupSearch) groupSearch.value = '';
+            if (hostSearch) {
+                hostSearch.value = '';
+                hostSearch.disabled = true;
             }
             
             // Submit form to clear all filters
@@ -405,8 +608,46 @@ document.addEventListener('DOMContentLoaded', function() {
             // Add loading indicator
             const submitBtn = this.querySelector('.btn-apply');
             if (submitBtn) {
+                const originalText = submitBtn.innerHTML;
                 submitBtn.innerHTML = '<span class="icon-loading"></span> <?= _("Applying...") ?>';
                 submitBtn.disabled = true;
+                
+                // Restore button after 5 seconds if something goes wrong
+                setTimeout(() => {
+                    submitBtn.innerHTML = originalText;
+                    submitBtn.disabled = false;
+                }, 5000);
+            }
+        });
+    }
+    
+    // Enable multi-select with Ctrl/Cmd
+    if (groupSelect) {
+        groupSelect.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            
+            const option = e.target;
+            if (option.tagName === 'OPTION') {
+                const select = option.parentElement;
+                
+                if (e.ctrlKey || e.metaKey) {
+                    // Ctrl/Cmd click: toggle selection
+                    option.selected = !option.selected;
+                } else if (e.shiftKey) {
+                    // Shift click: select range
+                    // Simple implementation - just select single
+                    select.selectedIndex = option.index;
+                } else {
+                    // Regular click: select only this one
+                    for (let i = 0; i < select.options.length; i++) {
+                        select.options[i].selected = false;
+                    }
+                    option.selected = true;
+                }
+                
+                // Trigger change event
+                const event = new Event('change');
+                select.dispatchEvent(event);
             }
         });
     }
