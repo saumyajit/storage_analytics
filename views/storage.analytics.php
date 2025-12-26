@@ -68,10 +68,9 @@ $end_record = min($page * $page_limit, $total_records);
 					<span class="export-icon">{ }</span>
 					<span class="export-tooltip">JSON</span>
 				</a>
-				
-				<div class="last-updated">
-					<?= sprintf(_('Updated: %s'), date('H:i:s')) ?>
-				</div>
+			</div>
+			<div class="last-updated">
+				<?= sprintf(_('Updated: %s'), date('H:i:s')) ?>
 			</div>
 		</div>
 		</div>
