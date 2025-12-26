@@ -692,113 +692,398 @@ class StorageAnalytics extends CController {
     /**
      * Export to CSV
      */
-    private function exportCSV(array $storageData, array $summary, array $filter): void {
-        $filename = 'storage_analytics_' . date('Y-m-d_H-i-s') . '.csv';
-        
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        
-        $output = fopen('php://output', 'w');
-        
-        // UTF-8 BOM for Excel compatibility
-        fwrite($output, "\xEF\xBB\xBF");
-        
-        // Header row
-        fputcsv($output, [
-            _('Host'), _('Mount Point'), _('Total'), _('Used'), _('Usage %'),
-            _('Daily Growth'), _('Days Until Full'), _('Status'), _('Algorithm')
-        ]);
-        
-        // Data rows
-        foreach ($storageData as $item) {
-            fputcsv($output, [
-                $item['host'],
-                $item['mount'],
-                $item['total_space'],
-                $item['used_space'],
-                $item['usage_pct'] . '%',
-                $item['daily_growth'] ?? '0 B/day',
-                $item['days_until_full'] ?? _('No growth'),
-                $item['status'],
-                $item['algorithm'] ?? 'simple'
-            ]);
-        }
-        
-        fclose($output);
-        exit;
-    }
-
+	private function exportCSV(array $storageData, array $summary, array $filter): void {
+		$filename = 'storage_analytics_' . date('Y-m-d_H-i-s') . '.csv';
+		
+		header('Content-Type: text/csv; charset=utf-8');
+		header('Content-Disposition: attachment; filename="' . $filename . '"');
+		
+		$output = fopen('php://output', 'w');
+		
+		// UTF-8 BOM for Excel compatibility
+		fwrite($output, "\xEF\xBB\xBF");
+		
+		// ====== HEADER SECTION ======
+		fputcsv($output, ['STORAGE ANALYTICS EXPORT']);
+		fputcsv($output, ['Generated:', date('Y-m-d H:i:s')]);
+		fputcsv($output, ['Time Range:', $filter['time_range'] . ' days']);
+		fputcsv($output, ['Prediction Method:', $filter['prediction_method']]);
+		fputcsv($output, ['Warning Threshold:', $filter['warning_threshold'] . '%']);
+		fputcsv($output, ['Critical Threshold:', $filter['critical_threshold'] . '%']);
+		fputcsv($output, []); // Empty line
+		
+		// ====== SUMMARY SECTION ======
+		fputcsv($output, ['SUMMARY']);
+		fputcsv($output, ['Metric', 'Value', 'Details']);
+		fputcsv($output, ['Total Hosts', $summary['total_hosts'] ?? 0, '']);
+		fputcsv($output, ['Total Filesystems', $summary['total_filesystems'] ?? 0, '']);
+		fputcsv($output, ['Total Capacity', $summary['total_capacity'] ?? '0 B', '']);
+		fputcsv($output, ['Total Used', $summary['total_used'] ?? '0 B', ($summary['total_usage_pct'] ?? 0) . '% used']);
+		fputcsv($output, ['Average Usage', ($summary['total_usage_pct'] ?? 0) . '%', '']);
+		fputcsv($output, ['Critical Filesystems', $summary['critical_count'] ?? 0, '']);
+		fputcsv($output, ['Warning Filesystems', $summary['warning_count'] ?? 0, '']);
+		fputcsv($output, ['OK Filesystems', ($summary['total_filesystems'] ?? 0) - ($summary['critical_count'] ?? 0) - ($summary['warning_count'] ?? 0), '']);
+		
+		if (isset($summary['avg_daily_growth_fmt'])) {
+			fputcsv($output, ['Average Daily Growth', $summary['avg_daily_growth_fmt'], '']);
+		}
+		
+		if (isset($summary['earliest_full']) && !empty($summary['earliest_full'])) {
+			fputcsv($output, [
+				'Earliest Full Forecast',
+				($summary['earliest_full']['days'] ?? 0) . ' days',
+				($summary['earliest_full']['host'] ?? 'N/A') . ' - ' . ($summary['earliest_full']['date'] ?? 'N/A')
+			]);
+		}
+		
+		fputcsv($output, []); // Empty line
+		fputcsv($output, []); // Empty line
+		
+		// ====== DETAILED DATA SECTION ======
+		fputcsv($output, ['DETAILED STORAGE DATA']);
+		fputcsv($output, [
+			'Host',
+			'Host Name', 
+			'Mount Point',
+			'Total Space',
+			'Used Space', 
+			'Free Space',
+			'Usage %',
+			'Daily Growth',
+			'Days Until Full',
+			'Growth Trend',
+			'Confidence %',
+			'Status',
+			'Algorithm'
+		]);
+		
+		foreach ($storageData as $item) {
+			// Calculate free space
+			$freeBytes = ($item['total_raw'] ?? 0) - ($item['used_raw'] ?? 0);
+			$freeSpace = $freeBytes > 0 ? $this->formatBytes($freeBytes) : '0 B';
+			
+			fputcsv($output, [
+				$item['host'] ?? 'Unknown',
+				$item['host_name'] ?? 'Unknown',
+				$item['mount'] ?? '/',
+				$item['total_space'] ?? '0 B',
+				$item['used_space'] ?? '0 B',
+				$freeSpace,
+				($item['usage_pct'] ?? 0) . '%',
+				$item['daily_growth'] ?? '0 B/day',
+				$item['days_until_full'] ?? _('No growth'),
+				$item['growth_trend'] ?? 'stable',
+				$item['confidence'] ?? 0,
+				$item['status'] ?? 'ok',
+				$item['algorithm'] ?? 'simple'
+			]);
+		}
+		
+		fputcsv($output, []); // Empty line
+		fputcsv($output, []); // Empty line
+		
+		// ====== FOOTER SECTION ======
+		fputcsv($output, ['EXPORT METADATA']);
+		fputcsv($output, ['Total Records:', count($storageData)]);
+		fputcsv($output, ['Export Format:', 'CSV']);
+		fputcsv($output, ['Module Version:', 'Storage Analytics Pro 1.0']);
+		
+		fclose($output);
+		exit;
+	}
     /**
      * Export to HTML
      */
-    private function exportHTML(array $storageData, array $summary, array $filter): void {
-        $filename = 'storage_analytics_' . date('Y-m-d_H-i-s') . '.html';
-        
-        header('Content-Type: text/html; charset=utf-8');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        
-        ob_start();
-        ?>
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <title><?= _('Storage Analytics Export') ?></title>
-            <style>
-                body { font-family: Arial, sans-serif; margin: 20px; }
-                table { border-collapse: collapse; width: 100%; margin: 20px 0; }
-                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-                th { background: #f2f2f2; }
-                .critical { background: #ffebee; }
-                .warning { background: #fff8e1; }
-            </style>
-        </head>
-        <body>
-            <h1><?= _('Storage Analytics Report') ?></h1>
-            <p><?= _('Generated') ?>: <?= date('Y-m-d H:i:s') ?></p>
-            
-            <h2><?= _('Summary') ?></h2>
-            <p><?= _('Total Hosts') ?>: <?= $summary['total_hosts'] ?></p>
-            <p><?= _('Total Filesystems') ?>: <?= $summary['total_filesystems'] ?></p>
-            <p><?= _('Total Capacity') ?>: <?= $summary['total_capacity'] ?></p>
-            <p><?= _('Total Used') ?>: <?= $summary['total_used'] ?> (<?= $summary['total_usage_pct'] ?>%)</p>
-            <p><?= _('Critical') ?>: <?= $summary['critical_count'] ?>, <?= _('Warning') ?>: <?= $summary['warning_count'] ?></p>
-            
-            <h2><?= _('Storage Details') ?></h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th><?= _('Host') ?></th>
-                        <th><?= _('Mount Point') ?></th>
-                        <th><?= _('Total') ?></th>
-                        <th><?= _('Used') ?></th>
-                        <th><?= _('Usage %') ?></th>
-                        <th><?= _('Daily Growth') ?></th>
-                        <th><?= _('Days Until Full') ?></th>
-                        <th><?= _('Status') ?></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($storageData as $item): ?>
-                    <tr class="<?= $item['status'] ?>">
-                        <td><?= htmlspecialchars($item['host']) ?></td>
-                        <td><?= htmlspecialchars($item['mount']) ?></td>
-                        <td><?= $item['total_space'] ?></td>
-                        <td><?= $item['used_space'] ?></td>
-                        <td><?= $item['usage_pct'] ?>%</td>
-                        <td><?= $item['daily_growth'] ?? '0 B/day' ?></td>
-                        <td><?= $item['days_until_full'] ?? _('No growth') ?></td>
-                        <td><?= ucfirst($item['status']) ?></td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </body>
-        </html>
-        <?php
-        echo ob_get_clean();
-        exit;
-    }
+	private function exportHTML(array $storageData, array $summary, array $filter): void {
+		$filename = 'storage_analytics_' . date('Y-m-d_H-i-s') . '.html';
+		
+		header('Content-Type: text/html; charset=utf-8');
+		header('Content-Disposition: attachment; filename="' . $filename . '"');
+		
+		ob_start();
+		?>
+		<!DOCTYPE html>
+		<html lang="en">
+		<head>
+			<meta charset="UTF-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1.0">
+			<title><?= _('Storage Analytics Export') ?></title>
+			<style>
+				body { 
+					font-family: Arial, sans-serif; 
+					margin: 20px; 
+					color: #333; 
+					font-size: 12px;
+				}
+				h1, h2, h3, h4 { 
+					color: #2c3e50; 
+					margin-top: 0;
+				}
+				.header { 
+					border-bottom: 2px solid #3498db; 
+					padding-bottom: 10px; 
+					margin-bottom: 20px; 
+				}
+				.summary-section {
+					background: #f8f9fa;
+					border: 1px solid #ddd;
+					border-radius: 5px;
+					padding: 15px;
+					margin: 20px 0;
+				}
+				.summary-grid {
+					display: grid;
+					grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+					gap: 15px;
+					margin: 15px 0;
+				}
+				.summary-card {
+					background: white;
+					border: 1px solid #e0e0e0;
+					border-radius: 4px;
+					padding: 10px;
+				}
+				.summary-card .label {
+					font-size: 11px;
+					color: #7f8c8d;
+					margin-bottom: 5px;
+				}
+				.summary-card .value {
+					font-size: 16px;
+					font-weight: bold;
+					color: #2c3e50;
+				}
+				table { 
+					width: 100%; 
+					border-collapse: collapse; 
+					margin: 20px 0;
+					font-size: 11px;
+				}
+				th, td { 
+					border: 1px solid #ddd; 
+					padding: 8px 10px; 
+					text-align: left; 
+					vertical-align: top;
+				}
+				th { 
+					background: #f2f2f2; 
+					font-weight: bold; 
+					color: #2c3e50;
+				}
+				tr.critical { background: #ffebee; }
+				tr.warning { background: #fff8e1; }
+				tr.ok { background: #f5fff5; }
+				.status-badge { 
+					padding: 3px 8px; 
+					border-radius: 3px; 
+					font-size: 10px; 
+					font-weight: bold;
+					display: inline-block;
+				}
+				.critical { background: #ffcdd2; color: #c62828; }
+				.warning { background: #ffecb3; color: #ff8f00; }
+				.ok { background: #c8e6c9; color: #2e7d32; }
+				.footer { 
+					margin-top: 30px; 
+					padding-top: 15px; 
+					border-top: 1px solid #ddd; 
+					font-size: 11px; 
+					color: #7f8c8d; 
+				}
+				.page-break {
+					page-break-before: always;
+				}
+				@media print {
+					body { margin: 0.5in; }
+					.no-print { display: none; }
+				}
+			</style>
+		</head>
+		<body>
+			<div class="header">
+				<h1><?= _('Storage Analytics Report') ?></h1>
+				<p><strong><?= _('Generated on') ?>:</strong> <?= date('Y-m-d H:i:s') ?></p>
+				<p><strong><?= _('Filters') ?>:</strong> 
+					<?= _('Time Range') ?>: <?= $filter['time_range'] ?> <?= _('days') ?> | 
+					<?= _('Method') ?>: <?= $filter['prediction_method'] ?> |
+					<?= _('Warning') ?>: <?= $filter['warning_threshold'] ?>% |
+					<?= _('Critical') ?>: <?= $filter['critical_threshold'] ?>%
+				</p>
+			</div>
+			
+			<!-- SUMMARY SECTION -->
+			<div class="summary-section">
+				<h2><?= _('Summary') ?></h2>
+				<div class="summary-grid">
+					<div class="summary-card">
+						<div class="label"><?= _('Total Hosts') ?></div>
+						<div class="value"><?= $summary['total_hosts'] ?? 0 ?></div>
+					</div>
+					<div class="summary-card">
+						<div class="label"><?= _('Total Filesystems') ?></div>
+						<div class="value"><?= $summary['total_filesystems'] ?? 0 ?></div>
+					</div>
+					<div class="summary-card">
+						<div class="label"><?= _('Total Capacity') ?></div>
+						<div class="value"><?= $summary['total_capacity'] ?? '0 B' ?></div>
+					</div>
+					<div class="summary-card">
+						<div class="label"><?= _('Total Used') ?></div>
+						<div class="value"><?= $summary['total_used'] ?? '0 B' ?></div>
+						<div style="font-size: 11px; color: #7f8c8d; margin-top: 3px;">
+							(<?= $summary['total_usage_pct'] ?? 0 ?>% <?= _('used') ?>)
+						</div>
+					</div>
+					<div class="summary-card">
+						<div class="label"><?= _('Critical') ?></div>
+						<div class="value" style="color: #c62828;"><?= $summary['critical_count'] ?? 0 ?></div>
+					</div>
+					<div class="summary-card">
+						<div class="label"><?= _('Warning') ?></div>
+						<div class="value" style="color: #ff8f00;"><?= $summary['warning_count'] ?? 0 ?></div>
+					</div>
+					<div class="summary-card">
+						<div class="label"><?= _('Avg Daily Growth') ?></div>
+						<div class="value"><?= $summary['avg_daily_growth_fmt'] ?? '0 B/day' ?></div>
+					</div>
+					<?php if (isset($summary['earliest_full']) && !empty($summary['earliest_full'])): ?>
+					<div class="summary-card">
+						<div class="label"><?= _('Earliest Full') ?></div>
+						<div class="value"><?= $summary['earliest_full']['days'] ?? 0 ?> <?= _('days') ?></div>
+						<div style="font-size: 11px; color: #7f8c8d; margin-top: 3px;">
+							<?= $summary['earliest_full']['host'] ?? '' ?> (<?= $summary['earliest_full']['date'] ?? '' ?>)
+						</div>
+					</div>
+					<?php endif; ?>
+				</div>
+				
+				<!-- Status Distribution -->
+				<div style="margin-top: 15px; padding: 10px; background: white; border-radius: 4px; border: 1px solid #e0e0e0;">
+					<h4 style="margin-top: 0; margin-bottom: 10px;"><?= _('Status Distribution') ?></h4>
+					<div style="display: flex; align-items: center; gap: 10px;">
+						<?php
+						$total = $summary['total_filesystems'] ?? 0;
+						$critical = $summary['critical_count'] ?? 0;
+						$warning = $summary['warning_count'] ?? 0;
+						$ok = $total - $critical - $warning;
+						
+						$criticalPct = $total > 0 ? round(($critical / $total) * 100, 1) : 0;
+						$warningPct = $total > 0 ? round(($warning / $total) * 100, 1) : 0;
+						$okPct = $total > 0 ? round(($ok / $total) * 100, 1) : 0;
+						?>
+						<div style="flex: 1; height: 20px; background: #ecf0f1; border-radius: 3px; overflow: hidden; display: flex;">
+							<?php if ($criticalPct > 0): ?>
+							<div style="width: <?= $criticalPct ?>%; background: #c62828;" title="Critical: <?= $criticalPct ?>%"></div>
+							<?php endif; ?>
+							<?php if ($warningPct > 0): ?>
+							<div style="width: <?= $warningPct ?>%; background: #ff8f00;" title="Warning: <?= $warningPct ?>%"></div>
+							<?php endif; ?>
+							<?php if ($okPct > 0): ?>
+							<div style="width: <?= $okPct ?>%; background: #2e7d32;" title="OK: <?= $okPct ?>%"></div>
+							<?php endif; ?>
+						</div>
+						<div style="font-size: 11px; white-space: nowrap;">
+							<span style="color: #c62828;">■ <?= $critical ?> (<?= $criticalPct ?>%)</span> | 
+							<span style="color: #ff8f00;">■ <?= $warning ?> (<?= $warningPct ?>%)</span> | 
+							<span style="color: #2e7d32;">■ <?= $ok ?> (<?= $okPct ?>%)</span>
+						</div>
+					</div>
+				</div>
+			</div>
+			
+			<!-- DETAILED DATA SECTION -->
+			<h2><?= _('Detailed Storage Analysis') ?></h2>
+			<table>
+				<thead>
+					<tr>
+						<th><?= _('Host') ?></th>
+						<th><?= _('Mount Point') ?></th>
+						<th><?= _('Total') ?></th>
+						<th><?= _('Used') ?></th>
+						<th><?= _('Free') ?></th>
+						<th><?= _('Usage %') ?></th>
+						<th><?= _('Daily Growth') ?></th>
+						<th><?= _('Days Until Full') ?></th>
+						<th><?= _('Trend') ?></th>
+						<th><?= _('Status') ?></th>
+					</tr>
+				</thead>
+				<tbody>
+					<?php foreach ($storageData as $item): 
+						$freeBytes = ($item['total_raw'] ?? 0) - ($item['used_raw'] ?? 0);
+						$freeSpace = $freeBytes > 0 ? $this->formatBytes($freeBytes) : '0 B';
+					?>
+					<tr class="<?= $item['status'] ?? 'ok' ?>">
+						<td><?= htmlspecialchars($item['host'] ?? 'Unknown') ?></td>
+						<td><code><?= htmlspecialchars($item['mount'] ?? '/') ?></code></td>
+						<td><?= $item['total_space'] ?? '0 B' ?></td>
+						<td><?= $item['used_space'] ?? '0 B' ?></td>
+						<td><?= $freeSpace ?></td>
+						<td><?= $item['usage_pct'] ?? 0 ?>%</td>
+						<td><?= $item['daily_growth'] ?? '0 B/day' ?></td>
+						<td><?= $item['days_until_full'] ?? _('No growth') ?></td>
+						<td>
+							<?php if (isset($item['growth_trend'])): ?>
+								<?= 
+									$item['growth_trend'] === 'rapid_increase' ? '🚀 Rapid' :
+									($item['growth_trend'] === 'increasing' ? '📈 Increasing' :
+									($item['growth_trend'] === 'slow_increase' ? '⬆️ Slow' :
+									($item['growth_trend'] === 'decreasing' ? '📉 Decreasing' : '➡️ Stable')))
+								?>
+							<?php else: ?>
+								Stable
+							<?php endif; ?>
+						</td>
+						<td>
+							<span class="status-badge <?= $item['status'] ?? 'ok' ?>">
+								<?= ucfirst($item['status'] ?? 'ok') ?>
+							</span>
+						</td>
+					</tr>
+					<?php endforeach; ?>
+				</tbody>
+			</table>
+			
+			<?php if (!empty($summary['top_growers'])): ?>
+			<h3><?= _('Fastest Growing Filesystems') ?></h3>
+			<table>
+				<thead>
+					<tr>
+						<th><?= _('Host') ?></th>
+						<th><?= _('Mount Point') ?></th>
+						<th><?= _('Growth/Day') ?></th>
+						<th><?= _('Days Left') ?></th>
+						<th><?= _('Current Usage') ?></th>
+					</tr>
+				</thead>
+				<tbody>
+					<?php foreach ($summary['top_growers'] as $grower): ?>
+					<tr>
+						<td><?= htmlspecialchars($grower['host'] ?? 'Unknown') ?></td>
+						<td><code><?= htmlspecialchars($grower['mount'] ?? '/') ?></code></td>
+						<td><?= $grower['daily_growth'] ?? '0 B/day' ?></td>
+						<td><?= $grower['days_until_full'] ?? _('No growth') ?></td>
+						<td><?= $grower['usage_pct'] ?? 0 ?>%</td>
+					</tr>
+					<?php endforeach; ?>
+				</tbody>
+			</table>
+			<?php endif; ?>
+			
+			<div class="footer">
+				<p><strong><?= _('Report generated by Zabbix Storage Analytics Pro Module') ?></strong></p>
+				<p><?= _('Calculation based on') ?>: <?= $filter['time_range'] ?> <?= _('days of historical data') ?> | 
+				<?= _('Prediction method') ?>: <?= $filter['prediction_method'] ?></p>
+				<p><?= _('Thresholds') ?>: <?= _('Warning') ?> <?= $filter['warning_threshold'] ?>% | 
+				<?= _('Critical') ?> <?= $filter['critical_threshold'] ?>%</p>
+				<p><?= _('Total records exported') ?>: <?= count($storageData) ?></p>
+			</div>
+		</body>
+		</html>
+		<?php
+		echo ob_get_clean();
+		exit;
+	}
 
     /**
      * Export to JSON
